@@ -76,6 +76,26 @@ const defaults = {
   screenshotsKeep: 5_000,
 };
 
+// Agents are started through `bash -lc`, whose PATH comes from the login
+// profile and does not include nvm (only interactive shells load it), so a
+// bare "claude" can be "command not found" there even though it works in a
+// terminal. Resolve each binary to an absolute path once, searching the
+// gateway's own PATH and the usual install locations.
+export function resolveBinary(name) {
+  if (!name || name.includes("/")) return expand(name);
+  const dirs = [...String(process.env.PATH || "").split(":"), path.join(HOME, ".local/bin"), "/usr/local/bin", "/usr/bin"];
+  try {
+    const nvm = path.join(HOME, ".nvm/versions/node");
+    for (const v of fs.readdirSync(nvm).sort().reverse()) dirs.push(path.join(nvm, v, "bin"));
+  } catch {}
+  for (const d of dirs) {
+    if (!d) continue;
+    const f = path.join(d, name);
+    try { fs.accessSync(f, fs.constants.X_OK); if (fs.statSync(f).isFile()) return f; } catch {}
+  }
+  return name;
+}
+
 function merge(base, over) {
   const out = { ...base };
   for (const [k, v] of Object.entries(over || {})) {
@@ -96,5 +116,7 @@ export function loadConfig(overrides = {}) {
   cfg.home = HOME;
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 });
   cfg.secretRegexps = cfg.secretPatterns.map((p) => new RegExp(p, "i"));
+  cfg.claudeBinary = resolveBinary(cfg.claudeBinary);
+  cfg.codexBinary = resolveBinary(cfg.codexBinary);
   return cfg;
 }

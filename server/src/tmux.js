@@ -29,10 +29,27 @@ export async function newSession(name, cwd, command, { width = 200, height = 50,
   const args = ["new-session", "-d", "-s", name, "-x", String(width), "-y", String(height), "-c", cwd];
   for (const [k, v] of Object.entries(env)) args.push("-e", `${k}=${v}`);
   args.push(command);
+  // remain-on-exit is set in the same tmux invocation, before the server
+  // handles the child's exit, so a program that fails instantly (bad PATH,
+  // bad flag) leaves its error on screen instead of taking the session with it.
+  args.push(";", "set-option", "-t", name, "remain-on-exit", "on", ";", "set-option", "-t", name, "history-limit", "50000");
   await must("tmux", args);
-  // Keep the pane visible after the program exits so results are never lost.
-  await run("tmux", ["set-option", "-t", name, "remain-on-exit", "on"]);
-  await run("tmux", ["set-option", "-t", name, "history-limit", "50000"]);
+}
+
+export async function sessionInfo(name) {
+  const r = await run("tmux", ["display-message", "-p", "-t", check(name), "#{session_attached}\t#{window_width}\t#{window_height}\t#{pane_dead}\t#{pane_dead_status}"]);
+  if (r.code !== 0) return null;
+  const [attached, w, h, dead, status] = r.stdout.trim().split("\t");
+  return { attached: +attached, width: +w, height: +h, dead: dead === "1", status: status === "" ? null : Number(status) };
+}
+
+// Gives a detached session's window a fixed size again. A narrow client (an
+// iPad terminal in a side panel) that attached and left behind a 40-column
+// window makes TUIs collapse their output, which also hides approval details.
+export async function restoreSize(name, width, height) {
+  await run("tmux", ["resize-window", "-t", check(name), "-x", String(width), "-y", String(height)]);
+  // resize-window pins the size; hand sizing back to clients for next attach.
+  await run("tmux", ["set-option", "-w", "-u", "-t", name, "window-size"]);
 }
 
 export async function hasSession(name) { return (await run("tmux", ["has-session", "-t", check(name)])).code === 0; }

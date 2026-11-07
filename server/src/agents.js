@@ -22,6 +22,7 @@ import { expand } from "./config.js";
 
 export const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 const DAY = 86400_000;
+const SIZE = { w: 180, h: 50 }; // managed agent windows when no client is attached
 
 export function createAgents(cfg, db, projects, events, { watcher, screenshots } = {}) {
   const sessions = new Map(); // key → session
@@ -214,6 +215,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
     }
     procs = agents;
     panes = await tmux.listPanes();
+    await reconcileManaged().catch((e) => console.error("reconcile", e.message));
     link();
   }
 
@@ -337,10 +339,22 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
       if (prompt && !resume) args.push(prompt);
       cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");
     }
-    // A login shell so PATH (nvm) matches the user's terminal.
-    await tmux.newSession(name, p.path, `bash -lc ${shq(cmd)}`, { width: 180, height: 50 });
+    // A login shell for the user's profile; binaries are absolute (config.js)
+    // and PATH is passed through, so nvm-installed agents are found.
+    const binDir = path.dirname(agent === "claude" ? cfg.claudeBinary : cfg.codexBinary);
+    const env = { PATH: [binDir, process.env.PATH].filter(Boolean).join(":") };
+    await tmux.newSession(name, p.path, `bash -lc ${shq(`export PATH=${shq(env.PATH)}:"$PATH"; exec ${cmd}`)}`, { width: SIZE.w, height: SIZE.h });
     db.raw.prepare("INSERT INTO managed_agents(id,agent,project,cwd,tmux,session_id,created_at,title) VALUES(?,?,?,?,?,?,?,?)")
       .run(id, agent, p.id, p.path, name, agent === "claude" ? (resume || id) : resume, Date.now(), prompt.slice(0, 200) || null);
+    // An agent that dies at once (not installed, bad flag, auth expired) used
+    // to vanish silently. Watch it briefly and report what it printed.
+    const failure = await startupFailure(name);
+    if (failure) {
+      db.raw.prepare("UPDATE managed_agents SET ended_at=? WHERE id=?").run(Date.now(), id);
+      await tmux.kill(name);
+      events.emit({ kind: "agent.error", project: p.id, session: null, title: `${agentName(agent)} didn't start in ${p.name}`, detail: { output: failure.output, exitCode: failure.status, tmux: name }, notify: false });
+      throw Object.assign(new Error(`${agentName(agent)} exited straight away${failure.status != null ? ` (exit ${failure.status})` : ""}: ${failure.output.split("\n").filter(Boolean).slice(-3).join(" · ") || "no output"}`), { status: 502, body: { output: failure.output } });
+    }
     events.emit({ kind: "agent.started", project: p.id, session: agent === "claude" ? `claude:${resume || id}` : null, title: `Started ${agentName(agent)} in ${p.name}${resume ? " (resumed)" : ""}`, detail: { tmux: name, prompt: prompt.slice(0, 2000), mode } });
     watcher?.activate(p.id).catch(() => {});
     setTimeout(() => pollProcesses().catch(() => {}), 1500);
@@ -356,7 +370,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
     return { ok: true };
   }
 
-  async function answer(id, { signature, option }) {
+  async function answer(id, { signature, option, via = null }) {
     const s = get(id);
     if (!s.tmux) throw Object.assign(new Error("Not controllable"), { status: 409 });
     const screen = await tmux.capture(s.tmux.target, { lines: 70 });
@@ -365,9 +379,38 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
     await tmux.sendKeys(s.tmux.target, keysFor(p, Number(option)));
     prompts.delete(id);
     const label = p.options[Number(option)]?.label;
-    events.emit({ kind: "agent.approval_answered", project: s.project, session: s.key, title: `Answered "${label}" to: ${p.question}`, detail: { question: p.question, option: label, context: p.context.slice(0, 2000) } });
+    events.emit({ kind: "agent.approval_answered", project: s.project, session: s.key, title: `Answered "${label}" to: ${p.question}${via ? ` (from ${via})` : ""}`, detail: { question: p.question, option: label, context: p.context.slice(0, 2000), signature: p.signature, via } });
     setTimeout(() => pollPrompts().catch(() => {}), 700);
     return { ok: true, answered: label };
+  }
+
+  async function startupFailure(name, ms = Number(cfg.launchCheckMs ?? 2500)) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      await new Promise((r) => setTimeout(r, 250));
+      const info = await tmux.sessionInfo(name);
+      if (!info) return { status: null, output: "The tmux session closed immediately." };
+      if (info.dead) {
+        const out = (await tmux.capture(name, { lines: 60 })) || "";
+        return { status: info.status, output: out.split("\n").map((l) => l.trimEnd()).filter((l) => l && !/^Pane is dead/.test(l)).slice(-15).join("\n") };
+      }
+    }
+    return null;
+  }
+
+  // Managed rows whose tmux session no longer exists are finished: without
+  // this they count against the agent limit forever.
+  async function reconcileManaged() {
+    const names = new Set((await tmux.listSessions()).map((s) => s.name));
+    for (const row of managedRows()) {
+      if (Date.now() - row.created_at < 10_000 || names.has(row.tmux)) continue;
+      db.raw.prepare("UPDATE managed_agents SET ended_at=? WHERE id=?").run(Date.now(), row.id);
+    }
+    for (const row of managedRows()) {
+      if (!names.has(row.tmux)) continue;
+      const info = await tmux.sessionInfo(row.tmux).catch(() => null);
+      if (info && info.attached === 0 && (info.width < SIZE.w - 20 || info.height < SIZE.h - 15)) await tmux.restoreSize(row.tmux, SIZE.w, SIZE.h).catch(() => {});
+    }
   }
 
   async function interrupt(id) {

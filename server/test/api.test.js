@@ -13,6 +13,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-test-"));
 const root = path.join(tmp, "projects"), proj = path.join(root, "Demo");
 const claudeDir = path.join(tmp, "claude"), codexDir = path.join(tmp, "codex");
 let app, base, token;
+const pushes = [];
 const PORT = 18160 + Math.floor(Math.random() * 500);
 
 const api = async (method, p, body, { raw = false, tok = token, headers = {} } = {}) => {
@@ -32,13 +33,21 @@ before(async () => {
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], { cwd: proj });
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: proj });
   fs.mkdirSync(claudeDir); fs.mkdirSync(codexDir);
+  const failing = path.join(tmp, "failing-claude"); fs.writeFileSync(failing, "#!/bin/bash\necho 'Error: not logged in'\nexit 3\n"); fs.chmodSync(failing, 0o755);
   const hashFile = path.join(tmp, "hash"); fs.writeFileSync(hashFile, bcrypt.hashSync("correct horse", 4));
   app = createServer({ port: PORT, dataDir: path.join(tmp, "data"), passwordHashFile: hashFile, roots: [{ path: root, depth: 1, requireGit: false }], extra: [], exclude: [],
-    claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"], authorizedKeysFile: path.join(tmp, "authorized_keys") });
+    claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"], authorizedKeysFile: path.join(tmp, "authorized_keys"),
+    claudeBinary: failing, apnsConfigFile: path.join(tmp, "no-apns.json"), apnsTransport: async (m) => { pushes.push({ ...m, payload: JSON.parse(m.body) }); return { status: 200 }; } });
   await app.start();
   base = `http://127.0.0.1:${PORT}`;
 });
-after(async () => { await app.stop(); fs.rmSync(tmp, { recursive: true, force: true }); });
+after(async () => {
+  const leftovers = app.db.raw.prepare("SELECT tmux FROM builds UNION SELECT tmux FROM managed_agents").all();
+  await app.stop();
+  // Builds and agents started by the tests run in tmux; don't leave them behind.
+  for (const { tmux } of leftovers) { try { execFileSync("tmux", ["kill-session", "-t", tmux], { stdio: "ignore" }); } catch {} }
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 test("rejects unauthenticated requests and wrong passwords", async () => {
   assert.equal((await api("GET", "/api/projects", null, { tok: null })).status, 401);
@@ -242,4 +251,67 @@ test("app captures are stored by the gateway and registered as screenshots", asy
   assert.equal(r.body.source, "preview");
   assert.ok(!fs.existsSync(path.join(proj, "preview.png")), "nothing written into the project tree");
   assert.equal((await api("POST", "/api/screenshots?project=demo&name=x.exe", img, { raw: true })).status, 400);
+});
+
+test("an agent that exits at launch is reported, not silently lost", async () => {
+  const r = await api("POST", "/api/agents", { agent: "claude", project: "demo", prompt: "hello", allowDuplicate: true });
+  assert.equal(r.status, 502);
+  assert.match(r.body.error, /exited straight away \(exit 3\).*not logged in/);
+  assert.equal(app.db.raw.prepare("SELECT COUNT(*) n FROM managed_agents WHERE ended_at IS NULL").get().n, 0, "no phantom managed session");
+});
+
+test("push: approval notifications can be approved once from the notification", async () => {
+  const me = (await api("GET", "/api/push")).body;
+  assert.equal(me.registered, false);
+  assert.equal((await api("POST", "/api/push/register", { token: "zz" })).status, 400);
+  const reg = await api("POST", "/api/push/register", { token: "ab".repeat(32), environment: "sandbox" });
+  assert.equal(reg.status, 200);
+  assert.equal(reg.body.registered, true);
+  assert.equal(reg.body.prefs.categories.approvals, true);
+
+  const fixture = path.resolve("test/fixtures/claude-bash-prompt.txt");
+  const bin = path.join(tmp, "bin-push"); fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, "claude"), `#!/bin/bash\nclear; cat ${fixture}; IFS= read -rsn1 k; echo; echo "GOT:[$k]"; sleep 30\n`); fs.chmodSync(path.join(bin, "claude"), 0o755);
+  const name = `mcpush-${process.pid}`;
+  // Its own cwd, so it isn't matched to the transcript session the earlier test's agent used.
+  execFileSync("tmux", ["new-session", "-d", "-s", name, "-x", "160", "-y", "45", "-c", path.join(proj, "src"), path.join(bin, "claude")]);
+  try {
+    const push = await wait(async () => { await app.agents.pollProcesses(); await app.agents.pollPrompts(); return pushes.find((p) => p.payload.aps.category === "MC_APPROVAL"); }, 10000);
+    assert.ok(push, "approval push sent");
+    assert.equal(push.environment, "sandbox");
+    assert.equal(push.headers["apns-push-type"], "alert");
+    assert.match(push.payload.aps.alert.title, /Claude Code needs approval/);
+    assert.match(push.payload.aps.alert.body, /touch probe.txt/);
+    const { nonce, approveLabel } = push.payload.mc;
+    assert.equal(approveLabel, "Yes");
+    assert.equal((await api("POST", "/api/push/action", { nonce: "nope", action: "approve" })).status, 404);
+    const ok = await api("POST", "/api/push/action", { nonce, action: "approve" });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(ok.body.answered, "Yes");
+    const screen = await wait(() => { const out = execFileSync("tmux", ["capture-pane", "-p", "-t", name]).toString(); return out.includes("GOT:") && out; });
+    assert.match(screen, /GOT:\[\]/);
+    assert.equal((await api("POST", "/api/push/action", { nonce, action: "approve" })).status, 409, "single use");
+    // The answered prompt withdraws the notification on the device.
+    assert.ok(await wait(() => pushes.find((p) => p.payload.mc?.withdraw && p.headers["apns-push-type"] === "background")));
+  } finally { execFileSync("tmux", ["kill-session", "-t", name]); }
+});
+
+test("push: risky or partly hidden commands need the app; muted projects stay quiet", async () => {
+  const { assessApproval } = await import("../src/push.js");
+  const opts = [{ index: 0, label: "Yes", tone: "allow" }, { index: 1, label: "No", tone: "deny" }];
+  assert.equal(assessApproval({ kind: "command", command: "rm -rf build", context: "", options: opts }).reviewOnly, true);
+  assert.equal(assessApproval({ kind: "command", command: "git push --force", context: "", options: opts }).reviewOnly, true);
+  assert.equal(assessApproval({ kind: "command", command: null, context: "Reason: x\n[… 40 lines] ctrl + a view all", options: opts }).reviewOnly, true);
+  assert.equal(assessApproval({ kind: "trust", command: null, context: "trust this folder", options: opts }).reviewOnly, true);
+  assert.deepEqual(assessApproval({ kind: "command", command: "npm test", context: "", options: opts }), { reviewOnly: false, approve: 0, reject: 1 });
+
+  await api("PUT", "/api/push/prefs", { mutedProjects: ["demo"] });
+  const before = pushes.length;
+  await app.push._onEvent({ id: 999999, kind: "agent.done", project: "demo", session: "codex:x", notify: 1, title: "Task complete", detail: { agent: "codex", last: "All done." } });
+  assert.equal(pushes.length, before, "muted project");
+  await api("PUT", "/api/push/prefs", { mutedProjects: [] });
+  await app.push._onEvent({ id: 1000000, kind: "agent.done", project: "demo", session: "codex:x", notify: 1, title: "Task complete", detail: { agent: "codex", last: "Should I also update the docs?" } });
+  assert.equal(pushes.at(-1).payload.aps.category, "MC_INPUT", "a finished turn ending in a question asks for input");
+  await app.push._onEvent({ id: 1000001, kind: "agent.command_failed", project: "demo", session: "codex:x", notify: 0, title: "Failed (1): rg foo", detail: {} });
+  assert.equal(pushes.at(-1).payload.aps.category, "MC_INPUT", "routine command failures never push");
 });

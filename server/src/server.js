@@ -20,6 +20,7 @@ import { createVnc } from "./vnc.js";
 import { createBuilds } from "./builds.js";
 import { createGithub } from "./github.js";
 import { createSystem } from "./system.js";
+import { createPush } from "./push.js";
 import { unifiedDiff } from "./diff.js";
 import * as tmux from "./tmux.js";
 import * as ssh from "./ssh.js";
@@ -73,6 +74,7 @@ export function createServer(overrides = {}) {
   const builds = createBuilds(cfg, db, projects, events);
   const github = createGithub(events);
   const system = createSystem(cfg, events);
+  const push = createPush(cfg, db, events, agents, { transport: overrides.apnsTransport });
   const wss = new WebSocketServer({ noServer: true, handleProtocols: (protocols) => (protocols.has("binary") ? "binary" : false), maxPayload: 8 * 1024 * 1024 });
 
   const routes = [];
@@ -244,6 +246,14 @@ export function createServer(overrides = {}) {
   route("POST", "/api/agents/:id/end", ({ params, body }) => { confirm(body, "end"); return agents.end(decodeURIComponent(params.id)); });
   route("POST", "/api/attachments", async ({ q, req }) => agents.attachFile(q.get("project"), q.get("name"), await readBody(req, 60 * 1024 * 1024)), { raw: true });
 
+  // ---------- push notifications ----------
+  route("GET", "/api/push", ({ device }) => push.status(device));
+  route("POST", "/api/push/register", ({ device, body }) => push.register(device, body));
+  route("DELETE", "/api/push/register", ({ device }) => push.unregister(device));
+  route("PUT", "/api/push/prefs", ({ device, body }) => push.setPrefs(device, body));
+  route("POST", "/api/push/test", ({ device }) => push.test(device));
+  route("POST", "/api/push/action", ({ device, body }) => push.act(device, body));
+
   // ---------- timeline + events ----------
   route("GET", "/api/timeline", ({ q }) => events.query({ project: q.get("project"), session: q.get("session"), kinds: q.get("kinds")?.split(",").filter(Boolean), after: q.get("after"), before: q.get("before"), limit: q.get("limit") || 200 }));
   route("GET", "/api/notifications", ({ q }) => events.query({ notify: true, after: q.get("after") || 0, limit: 50 }));
@@ -378,10 +388,10 @@ export function createServer(overrides = {}) {
   }
   async function stop() {
     clearInterval(ghTimer); clearInterval(sysTimer); clearInterval(pruneTimer);
-    agents.stop(); watcher.close(); builds.close(); vnc.closeAll();
+    agents.stop(); push.close(); watcher.close(); builds.close(); vnc.closeAll();
     await new Promise((r) => server.close(r));
     server.closeAllConnections?.();
     db.close();
   }
-  return { cfg, server, start, stop, db, auth, events, projects, agents, watcher, screenshots, files };
+  return { cfg, server, start, stop, db, auth, events, projects, agents, watcher, screenshots, files, push };
 }

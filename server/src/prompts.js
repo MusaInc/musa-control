@@ -58,7 +58,19 @@ export function parsePrompt(screen) {
     if (SEPARATOR.test(l) && l.trim().length > 10 && /[─━]/.test(l)) break;
     if (l.trim() && !SEPARATOR.test(l)) context.unshift(l.trim());
   }
-  const question = [...context].reverse().find((l) => /\?\s*$/.test(l)) || context[context.length - 1] || "Choose an option";
+  // Codex folds long commands into "[… 40 lines] ctrl + a view all"; that
+  // hint is never the question.
+  const NOISE = /^\[…\s*\+?\d+ lines?\]|ctrl \+ [a-z] (to )?view|^… \+\d+ lines/i;
+  const meaningful = context.filter((l) => !NOISE.test(l));
+  // A "Reason:" line wrapped over several rows in a narrow pane reads as one sentence.
+  let question = null;
+  const r = meaningful.findIndex((l) => /^Reason:/i.test(l));
+  if (r >= 0) {
+    const parts = [];
+    for (let k = r; k < meaningful.length && parts.length < 8; k++) { parts.push(meaningful[k]); if (/\?\s*$/.test(meaningful[k])) break; }
+    question = parts.join(" ").replace(/\s+/g, " ");
+  }
+  question = question || [...meaningful].reverse().find((l) => /\?\s*$/.test(l)) || meaningful[meaningful.length - 1] || "Choose an option";
   const text = context.join("\n");
   const kind = /trust|safety check|folder access/i.test(text) ? "trust"
     : /\$ |bash command|run the following command/i.test(text) ? "command"

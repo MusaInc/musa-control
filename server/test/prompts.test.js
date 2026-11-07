@@ -39,3 +39,13 @@ test("idle screens are not prompts", () => {
   assert.equal(parsePrompt(fx("claude-idle.txt")), null);
   assert.equal(parsePrompt(""), null);
 });
+
+test("Codex prompt in a narrow pane: folded-output hint is never the question", () => {
+  const p = parsePrompt(fx("codex-narrow-prompt.txt"));
+  assert.ok(p);
+  assert.doesNotMatch(p.question, /ctrl \+ a/);
+  assert.match(p.question, /^Reason: Allow configuring a dedicated VoIP key/);
+  assert.equal(p.options.length, 2);
+  assert.equal(p.options[0].label, "Yes, proceed");
+  assert.equal(p.options[1].tone, "deny");
+});
