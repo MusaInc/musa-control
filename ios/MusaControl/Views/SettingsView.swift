@@ -174,7 +174,7 @@ struct NotificationSettingsSections: View {
     }
     var deliveryDot: String { status?.serverConfigured == true && status?.registered == true ? "idle" : status?.serverConfigured == false ? "approval" : "other" }
     var deliveryText: String {
-        guard let s = status else { return checked ? "Couldn't reach the gateway — pull to retry" : "Checking…" }
+        guard let s = status else { return checked ? "Couldn't reach the gateway — reopen Settings to retry" : "Checking…" }
         if !s.serverConfigured { return "Push not set up on the server yet — notifications arrive while the app is open and on background refreshes" }
         if !s.registered { return permission == .authorized ? "Registering this iPad…" : "Allow notifications to receive push" }
         return "Instant push (\(s.environment == "sandbox" ? "development" : "production") APNs)"
