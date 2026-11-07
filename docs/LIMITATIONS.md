@@ -1,12 +1,19 @@
-# Known limitations (v0.1)
+# Known limitations (v0.2)
 
 Stated plainly so nothing is mistaken for working when it isn't.
 
-* **No instant push notifications while the app is closed.** Notifications come from the live
-  event stream while the app runs, and from iOS background refresh (every ~15 min at best, at
-  iOS's discretion) otherwise. Real APNs push needs an *Apple Push Notifications service key*
-  (.p8, created at developer.apple.com → Keys) and a small sender in the gateway. App Store Connect
-  API keys can't create one.
+* **Push needs an APNs key on the server.** The gateway sends real APNs pushes (approvals with
+  Approve/Reject, agents waiting for input, finished turns, errors, builds, server alerts) once
+  `~/.config/musa-control/apns.json` points at an *Apple Push Notifications service key* (.p8, from
+  developer.apple.com → Keys; one key covers every app in the team). See `docs/PUSH.md`. Until then
+  the app falls back to the live stream while open and iOS background refresh (~15 min at best).
+  The App ID also needs the Push Notifications capability (Xcode's automatic signing adds it on the
+  next signed build). Not yet verified on a physical iPad.
+* **Approving from a notification** works only for plain yes/no prompts whose full command is visible.
+  Folder-trust prompts, high-risk commands (deletes, force pushes, sudo, deploys/publishing, secrets,
+  service restarts…) and commands the agent's screen shows only partly arrive without buttons and
+  open the app. Each Approve/Reject needs Face ID/passcode, works once, only while that exact prompt
+  is still on screen, and expires after 15 minutes.
 * **Approvals depend on the agent running inside tmux.** Sessions launched from Musa Control
   always are. Agents started elsewhere (VS Code, a plain SSH shell, the dashboard's own runners) are
   monitored from their transcripts but can't be typed into or approved from the app. Prompt
