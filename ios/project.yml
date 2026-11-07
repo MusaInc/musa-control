@@ -11,12 +11,13 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
 packages:
+  # Pinned: SwiftTerm 1.99.3 (2026-11-06) doesn't compile with Xcode 26.3.
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
-    from: "1.2.0"
+    exactVersion: "1.20.0"
   Citadel:
     url: https://github.com/orlandos-nl/Citadel
-    from: "0.7.0"
+    exactVersion: "0.12.1"
 targets:
   MusaControl:
     type: application

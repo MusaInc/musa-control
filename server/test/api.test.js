@@ -231,3 +231,12 @@ test("preview proxy reaches project dev servers only", async () => {
     assert.equal((await fetch(`${base}/api/proxy/${port}/`)).status, 401);
   } finally { child.kill(); }
 });
+
+test("app captures are stored by the gateway and registered as screenshots", async () => {
+  const img = execFileSync("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x200", "-frames:v", "1", "-f", "image2", "-c:v", "png", "-"]);
+  const r = await api("POST", "/api/screenshots?project=demo&name=preview.png", img, { raw: true });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.source, "preview");
+  assert.ok(!fs.existsSync(path.join(proj, "preview.png")), "nothing written into the project tree");
+  assert.equal((await api("POST", "/api/screenshots?project=demo&name=x.exe", img, { raw: true })).status, 400);
+});

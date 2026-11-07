@@ -132,7 +132,16 @@ final class AppModel {
     }
 
     func startStream() {
-        guard !fixtures else { streamState = .live; return }
+        guard !fixtures else {
+            // UI tests: replay the sample timeline through the same path live events take.
+            streamState = .live
+            Task {
+                let evs = (try? await client.get("/api/timeline", as: [TimelineEvent].self)) ?? []
+                for e in evs.sorted(by: { $0.ts < $1.ts }) { receive(e) }
+                banner = nil
+            }
+            return
+        }
         stream?.stop()
         let s = EventStream(client: client, lastId: UserDefaults.standard.string(forKey: "lastEventId"))
         s.onEvent = { [weak self] ev in self?.receive(ev) }

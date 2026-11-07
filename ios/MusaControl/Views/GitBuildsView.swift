@@ -315,6 +315,7 @@ struct CIRuns: View {
     @State private var confirm: String?
     @State private var note: String?
     @State private var workflows: [Workflow] = []
+    @State private var dispatching: Workflow?
 
     var path: String { "/api/github/\(repo)" }
 
@@ -332,6 +333,12 @@ struct CIRuns: View {
             }
             .listStyle(.plain).scrollContentBackground(.hidden).frame(width: 340)
             .refreshable { await load() }
+            .safeAreaInset(edge: .top) {
+                Menu {
+                    ForEach(workflows.filter { $0.state == "active" }) { w in Button { dispatching = w } label: { Label(w.name, systemImage: "play") } }
+                } label: { Label("Run workflow", systemImage: "play.circle").font(Theme.label).frame(maxWidth: .infinity).frame(height: 32) }
+                .disabled(workflows.isEmpty).background(Theme.raised)
+            }
             Divider().overlay(Theme.line)
             VStack(spacing: 0) {
                 if let d = detail {
@@ -375,9 +382,20 @@ struct CIRuns: View {
                 }
             }
         } message: { Text("This acts on \(repo) on GitHub.") }
+        .confirmationDialog("Run \(dispatching?.name ?? "") on \(repo)?", isPresented: Binding(get: { dispatching != nil }, set: { if !$0 { dispatching = nil } }), titleVisibility: .visible) {
+            Button("Run with default inputs") {
+                guard let w = dispatching else { return }
+                Task {
+                    do { _ = try await app.client.send("POST", "\(path)/dispatch", ["confirm": true, "workflow": (w.path as NSString).lastPathComponent], as: OK.self); note = "Started \(w.name)." }
+                    catch { note = error.localizedDescription }
+                    try? await Task.sleep(nanoseconds: 3_000_000_000); await load()
+                }
+            }
+        } message: { Text("Workflows can build, sign or publish. It runs on the default branch with its default inputs.") }
     }
 
     func load() async {
+        if workflows.isEmpty { workflows = (try? await app.client.get("\(path)/workflows", as: [Workflow].self)) ?? [] }
         runs = (try? await app.client.get("\(path)/runs", ["limit": "30"], as: [WorkflowRun].self)) ?? []
         if selected == nil { selected = runs.first?.databaseId }
     }
