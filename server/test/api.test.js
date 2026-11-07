@@ -130,6 +130,9 @@ test("git status, stage, commit, and push requires confirmation", async () => {
   const c = await api("POST", "/api/projects/demo/git/commit", { message: "Edit from test" });
   assert.equal(c.body.subject, "Edit from test");
   assert.equal((await api("POST", "/api/projects/demo/git/push", {})).status, 428);
+  const branches = (await api("GET", "/api/projects/demo/git/branches")).body;
+  assert.deepEqual(Object.keys(branches[0]).sort(), ["current", "date", "name", "sha", "upstream"]);
+  assert.equal(branches.find((b) => b.current).name, "main");
   const d = (await api("GET", `/api/projects/demo/git/diff?commit=${c.body.sha}`)).body.diff;
   assert.match(d, /\+export const b = 4;/);
 });

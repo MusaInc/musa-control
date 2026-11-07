@@ -68,7 +68,7 @@ export function createGit(projects, events) {
 
   async function branches(id) {
     const p = projects.get(id);
-    const r = await git(p.path, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%x1f%(objectname:short)%x1f%(committerdate:iso-strict)%x1f%(upstream:short)%x1f%(HEAD)", "refs/heads", "refs/remotes"]);
+    const r = await git(p.path, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%1f%(objectname:short)%1f%(committerdate:iso-strict)%1f%(upstream:short)%1f%(HEAD)", "refs/heads", "refs/remotes"]);
     return r.stdout.split("\n").filter(Boolean).map((l) => { const [name, sha, date, upstream, head] = l.split("\x1f"); return { name, sha, date, upstream, current: head === "*" }; });
   }
 
