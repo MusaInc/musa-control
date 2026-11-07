@@ -245,7 +245,7 @@ test("preview proxy reaches project dev servers only", async () => {
 });
 
 test("app captures are stored by the gateway and registered as screenshots", async () => {
-  const img = execFileSync("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x200", "-frames:v", "1", "-f", "image2", "-c:v", "png", "-"]);
+  const img = execFileSync("ffmpeg", ["-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=640x400", "-frames:v", "1", "-f", "image2", "-c:v", "png", "-"]);
   const r = await api("POST", "/api/screenshots?project=demo&name=preview.png", img, { raw: true });
   assert.equal(r.status, 200);
   assert.equal(r.body.source, "preview");
