@@ -15,9 +15,13 @@ on:
   workflow_dispatch:
     inputs:
       testflight:
-        description: "Upload to TestFlight after the tests pass"
+        description: "Archive + sign after the tests pass"
         type: boolean
         default: false
+      upload:
+        description: "Upload the signed build to TestFlight (off = sign and export the .ipa only)"
+        type: boolean
+        default: true
       version:
         description: "Marketing version (must be ≥ the highest on TestFlight)"
         default: "0.1.0"
@@ -131,6 +135,7 @@ jobs:
           python3 -m pip install --quiet --break-system-packages pyjwt cryptography
 
       - name: Check the app record and version
+        if: inputs.upload
         env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
         run: |
           python3 ../tools/asc.py check-app "$BUNDLE_ID"
@@ -158,7 +163,7 @@ jobs:
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
             <key>method</key><string>app-store-connect</string>
-            <key>destination</key><string>upload</string>
+            <key>destination</key><string>${{ inputs.upload && 'upload' || 'export' }}</string>
             <key>teamID</key><string>$TEAM</string>
             <key>signingStyle</key><string>automatic</string>
             <key>manageAppVersionAndBuildNumber</key><false/>
@@ -169,14 +174,24 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$HOME/private_keys/AuthKey_${KEY_ID}.p8" \
             -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" | tail -40
-          echo "Uploaded ${{ inputs.version }} (${{ github.run_number }})"
+          echo "Signed ${{ inputs.version }} (${{ github.run_number }}); uploaded: ${{ inputs.upload }}"
+          ls -la build/upload || true
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.upload }}
+        with:
+          name: signed-ipa-${{ github.run_number }}
+          path: ios/build/upload
+          retention-days: 7
 
       - name: Wait for Apple processing
+        if: inputs.upload
         timeout-minutes: 45
         env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
         run: python3 ../tools/asc.py wait "$BUNDLE_ID" "${{ github.run_number }}"
 
       - name: Make it testable (compliance + internal testers)
+        if: inputs.upload
         env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
         run: python3 ../tools/asc.py testable "$BUNDLE_ID" "${{ github.run_number }}"
 
