@@ -69,15 +69,16 @@ final class AppModel {
 
     init() {
         let args = ProcessInfo.processInfo.arguments
-        fixtures = args.contains("-UITestFixtures")
+        let fx = args.contains("-UITestFixtures")
+        fixtures = fx
         let stored = UserDefaults.standard.string(forKey: "serverURL") ?? "https://musastudios.co.uk/control"
         let url = URL(string: stored) ?? URL(string: "https://musastudios.co.uk/control")!
         serverURL = url
-        let token = fixtures ? "fixture" : Keychain.string("deviceToken")
-        client = GatewayClient(base: url, token: token, transport: fixtures ? FixtureTransport() : nil)
+        let token = fx ? "fixture" : Keychain.string("deviceToken")
+        client = GatewayClient(base: url, token: token, transport: fx ? FixtureTransport() : nil)
         if let s = UserDefaults.standard.string(forKey: "section"), let sec = AppSection(rawValue: s) { section = sec }
         workspaceProject = UserDefaults.standard.string(forKey: "workspaceProject")
-        if fixtures, let i = args.firstIndex(of: "-section"), i + 1 < args.count, let s = AppSection(rawValue: args[i + 1]) { section = s }
+        if fx, let i = args.firstIndex(of: "-section"), i + 1 < args.count, let s = AppSection(rawValue: args[i + 1]) { section = s }
         if token != nil { phase = .connecting }
     }
 
