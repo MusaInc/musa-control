@@ -70,6 +70,7 @@ const defaults = {
   secretPatterns: ["(^|/)\\.env($|\\.)", "\\.p8$", "\\.pem$", "\\.key$", "\\.keystore$", "\\.jks$", "id_(rsa|ed25519|ecdsa)$",
     "(^|/)\\.ssh/", "\\.mobileprovision$", "\\.p12$", "credentials\\.json$"],
   githubRepos: [],
+  authorizedKeysFile: "~/.ssh/authorized_keys",
   eventsKeep: 100_000,
   revisionsKeep: 25_000,
   screenshotsKeep: 5_000,
@@ -91,6 +92,7 @@ export function loadConfig(overrides = {}) {
   if (process.env.MUSA_CONTROL_PORT) cfg.port = Number(process.env.MUSA_CONTROL_PORT);
   if (process.env.MUSA_CONTROL_DATA) cfg.dataDir = process.env.MUSA_CONTROL_DATA;
   cfg.dataDir = expand(cfg.dataDir);
+  cfg.authorizedKeysFile = expand(cfg.authorizedKeysFile);
   cfg.home = HOME;
   fs.mkdirSync(cfg.dataDir, { recursive: true, mode: 0o700 });
   cfg.secretRegexps = cfg.secretPatterns.map((p) => new RegExp(p, "i"));

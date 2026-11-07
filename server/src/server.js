@@ -22,6 +22,7 @@ import { createGithub } from "./github.js";
 import { createSystem } from "./system.js";
 import { unifiedDiff } from "./diff.js";
 import * as tmux from "./tmux.js";
+import * as ssh from "./ssh.js";
 
 export const VERSION = "0.1.0";
 const WEB_DIR = new URL("../web/", import.meta.url).pathname;
@@ -93,7 +94,13 @@ export function createServer(overrides = {}) {
   // ---------- session ----------
   route("GET", "/api/me", ({ device }) => ({ id: device.id, name: device.name, expiresAt: device.expires_at, server: { version: VERSION, host: "musastudios.co.uk" } }));
   route("GET", "/api/devices", () => auth.listDevices());
-  route("DELETE", "/api/devices/:id", ({ params }) => { auth.revoke(params.id); return { ok: true }; });
+  route("DELETE", "/api/devices/:id", ({ params }) => { auth.revoke(params.id); ssh.deauthorize(params.id, cfg.authorizedKeysFile); return { ok: true }; });
+  route("GET", "/api/ssh/hostkeys", () => ssh.hostKeys());
+  route("POST", "/api/ssh/authorize", ({ device, body }) => {
+    const r = ssh.authorize(device.id, device.name, body.publicKey, cfg.authorizedKeysFile);
+    events.emit({ kind: "ssh.authorized", title: `SSH key installed for ${device.name}`, detail: { device: device.id } });
+    return { ...r, ...ssh.hostKeys() };
+  });
   route("POST", "/api/web-session", ({ device, res }) => {
     const c = auth.issueWebCookie(device);
     json(res, 200, { cookie: { name: c.name, value: c.value, path: "/control", maxAge: c.maxAge } }, { "Set-Cookie": c.header });
@@ -175,6 +182,37 @@ export function createServer(overrides = {}) {
     }
     return { public: d.previews, local: ports.map((p) => ({ port: p.port, process: p.process, pid: p.pid, cwd: p.cwd, label: `${p.process} :${p.port}` })), static: staticBuilds };
   });
+
+  // Authenticated reverse proxy to a project's local dev server. Only ports
+  // owned by a process running inside a project directory are reachable, so
+  // infrastructure ports (CDP, Caddy admin, VNC, databases) never are.
+  async function previewPorts() {
+    const all = [...projects.all().values()];
+    return new Set((await system.listeningPorts()).filter((p) => p.port > 1024 && p.cwd && all.some((x) => p.cwd === x.path || p.cwd.startsWith(x.path + "/"))).map((p) => p.port));
+  }
+  let portCache = { at: 0, set: new Set() };
+  for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+    route(method, "/api/proxy/:port/*", async ({ req, res, params }) => {
+      const port = Number(params.port);
+      if (Date.now() - portCache.at > 5000) portCache = { at: Date.now(), set: await previewPorts() };
+      if (!portCache.set.has(port)) throw Object.assign(new Error("That port isn't a project dev server"), { status: 403 });
+      const qs = new URL(req.url, "http://x").search;
+      const headers = { ...req.headers, host: `127.0.0.1:${port}` };
+      for (const h of ["authorization", "connection", "upgrade", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "origin", "referer", "cookie"]) delete headers[h];
+      if (req.headers["x-mc-cookie"]) { headers.cookie = req.headers["x-mc-cookie"]; delete headers["x-mc-cookie"]; }
+      await new Promise((resolve) => {
+        const up = http.request({ host: "127.0.0.1", port, method: req.method, path: "/" + (params.rest || "") + qs, headers }, (r) => {
+          const h = { ...r.headers };
+          delete h["content-security-policy"]; delete h["x-frame-options"];
+          if (h["set-cookie"]) { h["x-mc-set-cookie"] = h["set-cookie"].join("\n"); delete h["set-cookie"]; }
+          res.writeHead(r.statusCode, h);
+          r.pipe(res); r.on("end", resolve);
+        });
+        up.on("error", (e) => { if (!res.headersSent) json(res, 502, { error: `Dev server on ${port} didn't answer: ${e.message}` }); resolve(); });
+        req.pipe(up);
+      });
+    }, { raw: true, cookie: true });
+  }
 
   // ---------- builds + CI ----------
   route("GET", "/api/builds", ({ q }) => builds.list(q.get("project") || null, 40));

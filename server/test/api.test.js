@@ -34,7 +34,7 @@ before(async () => {
   fs.mkdirSync(claudeDir); fs.mkdirSync(codexDir);
   const hashFile = path.join(tmp, "hash"); fs.writeFileSync(hashFile, bcrypt.hashSync("correct horse", 4));
   app = createServer({ port: PORT, dataDir: path.join(tmp, "data"), passwordHashFile: hashFile, roots: [{ path: root, depth: 1, requireGit: false }], extra: [], exclude: [],
-    claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"] });
+    claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"], authorizedKeysFile: path.join(tmp, "authorized_keys") });
   await app.start();
   base = `http://127.0.0.1:${PORT}`;
 });
@@ -201,4 +201,33 @@ test("web-session cookie unlocks web-view pages only", async () => {
   assert.equal((await api("GET", "/api/screenshots", null, { tok: null, headers: { Cookie: cookie } })).status, 401, "JSON API needs the bearer token");
   assert.equal((await api("GET", "/vnc.html", null, { tok: null, headers: { Cookie: cookie } })).status, 200);
   assert.equal((await api("GET", "/static/demo/src/app.js", null, { tok: null, headers: { Cookie: cookie } })).status, 200);
+});
+
+test("installs only valid ed25519 device keys and removes them on revoke", async () => {
+  const pub = execFileSync("bash", ["-c", `ssh-keygen -q -t ed25519 -N '' -f ${tmp}/k <<< y >/dev/null; cat ${tmp}/k.pub`]).toString().trim();
+  assert.equal((await api("POST", "/api/ssh/authorize", { publicKey: "ssh-rsa AAAA" })).status, 400);
+  const r = await api("POST", "/api/ssh/authorize", { publicKey: pub });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.keys.some((k) => k.fingerprint.startsWith("SHA256:")));
+  const file = fs.readFileSync(path.join(tmp, "authorized_keys"), "utf8");
+  assert.match(file, /musa-control:/);
+  const me = (await api("GET", "/api/me")).body;
+  // Revoking a different device keeps this key; revoking this one removes it.
+  await api("DELETE", "/api/devices/someone-else");
+  assert.match(fs.readFileSync(path.join(tmp, "authorized_keys"), "utf8"), new RegExp(`musa-control:${me.id}`));
+});
+
+test("preview proxy reaches project dev servers only", async () => {
+  const http = await import("node:http");
+  const { spawn } = await import("node:child_process");
+  const port = PORT + 700;
+  const child = spawn(process.execPath, ["-e", `require("http").createServer((q,s)=>{s.setHeader("x-path", q.url); s.end("dev:"+q.url)}).listen(${port},"127.0.0.1")`], { cwd: proj });
+  try {
+    await new Promise((r) => setTimeout(r, 800));
+    const ok = await fetch(`${base}/api/proxy/${port}/assets/app.js?v=1`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(await ok.text(), "dev:/assets/app.js?v=1");
+    // The gateway's own port isn't inside a project → refused.
+    assert.equal((await fetch(`${base}/api/proxy/${PORT}/api/ping`, { headers: { Authorization: `Bearer ${token}` } })).status, 403);
+    assert.equal((await fetch(`${base}/api/proxy/${port}/`)).status, 401);
+  } finally { child.kill(); }
 });
