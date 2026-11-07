@@ -58,7 +58,7 @@ jobs:
         run: |
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
           xcodegen generate
-          xcodebuild -resolvePackageDependencies -project MusaControl.xcodeproj -scheme MusaControl | tail -5
+          xcodebuild -resolvePackageDependencies -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation | tail -5
 
       - name: Pick an iPad simulator
         run: |
@@ -75,7 +75,7 @@ jobs:
       - name: Build and run unit tests
         run: |
           mkdir -p build
-          xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl \
+          xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation -skipMacroValidation \
             -destination "id=$SIM" -only-testing:MusaControlTests \
             -resultBundlePath build/unit.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/unit.log \
             | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 500'
@@ -84,7 +84,7 @@ jobs:
         if: inputs.ui_tests != false
         continue-on-error: true
         run: |
-          xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl \
+          xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation -skipMacroValidation \
             -destination "id=$SIM" -only-testing:MusaControlUITests \
             -resultBundlePath build/ui.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/ui.log \
             | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 300'
@@ -145,7 +145,7 @@ jobs:
       - name: Archive (unsigned; the export step signs with the cloud-managed certificate)
         env: { TEAM: "${{ secrets.APPLE_TEAM_ID }}" }
         run: |
-          xcodebuild -project MusaControl.xcodeproj -scheme MusaControl -configuration Release \
+          xcodebuild -project MusaControl.xcodeproj -scheme MusaControl -configuration Release -skipPackagePluginValidation -skipMacroValidation \
             -destination "generic/platform=iOS" -archivePath build/MusaControl.xcarchive archive \
             DEVELOPMENT_TEAM="$TEAM" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER="" | tail -40

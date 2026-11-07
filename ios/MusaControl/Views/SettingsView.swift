@@ -51,6 +51,10 @@ struct SettingsView: View {
             }
 
             SwiftUI.Section {
+                Toggle("Require Face ID when returning to the app", isOn: Binding(get: { AppLock.shared.enabled }, set: { AppLock.shared.enabled = $0 }))
+            } header: { Text("Security") } footer: { Text("Covers screenshots, code and agent history whenever Musa Control comes back from the background.") }
+
+            SwiftUI.Section {
                 Stepper("Terminal text \(Int(terminals.fontSize)) pt", value: Binding(get: { Double(terminals.fontSize) }, set: { terminals.setFontSize(CGFloat($0)) }), in: 9...24)
                 Button("Reset all workspace layouts") { WorkspaceLayoutStore.resetAll() }
                 Button("Clear image cache") { ImageCache.shared.clear() }

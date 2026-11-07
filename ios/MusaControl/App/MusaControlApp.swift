@@ -18,6 +18,7 @@ struct MusaControlApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .overlay { LockOverlay() }
                 .environment(app)
                 .environment(terminals)
                 .preferredColorScheme(.dark)
@@ -30,6 +31,7 @@ struct MusaControlApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
+                AppLock.shared.lock()
                 app.suspend()
                 Notifier.shared.scheduleRefresh()
             case .active:
