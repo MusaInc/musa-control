@@ -15,8 +15,8 @@ struct GitBuildsView: View {
                     HStack(spacing: 8) {
                         Image(systemName: p.icon).frame(width: 16).foregroundStyle(Theme.textDim)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(p.name).font(.system(size: 13))
-                            Text(p.github ?? "local only").font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
+                            Text(p.name).font(.system(size: 14))
+                            Text(p.github ?? "local only").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
                         }
                     }
                     .tag(p.id).listRowBackground(project == p.id ? Theme.hover : Theme.surface)
@@ -88,7 +88,7 @@ struct GitPanel: View {
                 .listStyle(.plain).scrollContentBackground(.hidden)
                 .overlay { if status?.files?.isEmpty == true { EmptyNote(icon: "checkmark.seal", text: "Working tree clean") } }
                 VStack(spacing: 6) {
-                    TextField("Commit message", text: $message, axis: .vertical).lineLimit(1...4).font(.system(size: 13))
+                    TextField("Commit message", text: $message, axis: .vertical).lineLimit(1...4).font(.system(size: 14))
                         .padding(8).background(Theme.bg, in: RoundedRectangle(cornerRadius: 7))
                     Button { commit() } label: {
                         Text(busy ? "Working…" : "Commit staged").font(Theme.label).frame(maxWidth: .infinity).frame(height: 32)
@@ -125,10 +125,10 @@ struct GitPanel: View {
     func fileRow(_ f: GitFile, staged: Bool) -> some View {
         HStack(spacing: 8) {
             Button { toggle(f, staged: staged) } label: { Image(systemName: staged ? "checkmark.square.fill" : "square").foregroundStyle(staged ? Theme.accent : Theme.textDim).frame(width: 26, height: 26) }.buttonStyle(.plain)
-            Text(f.code).font(.system(size: 11, weight: .bold, design: .monospaced)).foregroundStyle(f.code == "?" || f.code == "A" ? Theme.green : f.code == "D" ? Theme.red : Theme.yellow).frame(width: 14)
+            Text(f.code).font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(f.code == "?" || f.code == "A" ? Theme.green : f.code == "D" ? Theme.red : Theme.yellow).frame(width: 14)
             VStack(alignment: .leading, spacing: 0) {
-                Text((f.path as NSString).lastPathComponent).font(.system(size: 12.5)).lineLimit(1)
-                Text((f.path as NSString).deletingLastPathComponent).font(.system(size: 10)).foregroundStyle(Theme.textFaint).lineLimit(1)
+                Text((f.path as NSString).lastPathComponent).font(.system(size: 13.5)).lineLimit(1)
+                Text((f.path as NSString).deletingLastPathComponent).font(.system(size: 11.5)).foregroundStyle(Theme.textFaint).lineLimit(1)
             }
             Spacer()
         }
@@ -171,9 +171,9 @@ struct GitHistory: View {
         HStack(spacing: 0) {
             List(commits, selection: $selected) { c in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(c.subject).font(.system(size: 12.5)).lineLimit(2)
+                    Text(c.subject).font(.system(size: 13.5)).lineLimit(2)
                     HStack(spacing: 6) { Text(c.short).font(Theme.monoSmall).foregroundStyle(Theme.accent); Text(c.author); Text(String(c.date.prefix(16)).replacingOccurrences(of: "T", with: " ")) }
-                        .font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
+                        .font(.system(size: 12)).foregroundStyle(Theme.textFaint)
                 }
                 .tag(c.sha).listRowBackground(selected == c.sha ? Theme.hover : Theme.surface)
             }
@@ -194,7 +194,7 @@ struct GitBranches: View {
         List(branches) { b in
             HStack {
                 Image(systemName: b.current ? "checkmark.circle.fill" : (b.name.contains("/") ? "cloud" : "arrow.triangle.branch")).foregroundStyle(b.current ? Theme.accent : Theme.textDim)
-                Text(b.name).font(.system(size: 13, weight: b.current ? .semibold : .regular))
+                Text(b.name).font(.system(size: 14, weight: b.current ? .semibold : .regular))
                 if let u = b.upstream, !u.isEmpty { Text("→ \(u)").font(Theme.caption).foregroundStyle(Theme.textFaint) }
                 Spacer()
                 Text(b.sha).font(Theme.monoSmall).foregroundStyle(Theme.textFaint)
@@ -223,7 +223,7 @@ struct BuildsPanel: View {
                 List {
                     SwiftUI.Section("Run") {
                         ForEach(detail?.commands ?? []) { c in
-                            Button { run(c) } label: { HStack { Image(systemName: "play.fill").font(.system(size: 9)).foregroundStyle(Theme.accent); Text(c.label).font(Theme.monoSmall).lineLimit(1) } }
+                            Button { run(c) } label: { HStack { Image(systemName: "play.fill").font(.system(size: 10.5)).foregroundStyle(Theme.accent); Text(c.label).font(Theme.monoSmall).lineLimit(1) } }
                                 .buttonStyle(.plain).listRowBackground(Theme.surface)
                         }
                         if detail?.commands.isEmpty == true { Text("This project defines no scripts.").font(Theme.caption).foregroundStyle(Theme.textFaint) }
@@ -232,7 +232,7 @@ struct BuildsPanel: View {
                         ForEach(builds) { b in
                             HStack {
                                 StatusDot(status: b.status)
-                                VStack(alignment: .leading, spacing: 1) { Text(b.label).font(.system(size: 12.5)).lineLimit(1); Text(b.status == "running" ? "running…" : "\(b.status) · \(Fmt.ago(b.endedAt ?? b.startedAt))").font(.system(size: 10.5)).foregroundStyle(Theme.textFaint) }
+                                VStack(alignment: .leading, spacing: 1) { Text(b.label).font(.system(size: 13.5)).lineLimit(1); Text(b.status == "running" ? "running…" : "\(b.status) · \(Fmt.ago(b.endedAt ?? b.startedAt))").font(.system(size: 12)).foregroundStyle(Theme.textFaint) }
                             }
                             .contentShape(Rectangle()).onTapGesture { selected = b.id }
                             .listRowBackground(selected == b.id ? Theme.hover : Theme.surface)
@@ -325,8 +325,8 @@ struct CIRuns: View {
                 HStack(alignment: .top, spacing: 8) {
                     StatusDot(status: r.state).padding(.top, 5)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(r.displayTitle).font(.system(size: 12.5)).lineLimit(2)
-                        Text("\(r.workflowName) · \(r.headBranch ?? "") · \(String(r.createdAt.prefix(16)).replacingOccurrences(of: "T", with: " "))").font(.system(size: 10.5)).foregroundStyle(Theme.textFaint).lineLimit(1)
+                        Text(r.displayTitle).font(.system(size: 13.5)).lineLimit(2)
+                        Text("\(r.workflowName) · \(r.headBranch ?? "") · \(String(r.createdAt.prefix(16)).replacingOccurrences(of: "T", with: " "))").font(.system(size: 12)).foregroundStyle(Theme.textFaint).lineLimit(1)
                     }
                 }
                 .tag(r.databaseId).listRowBackground(selected == r.databaseId ? Theme.hover : Theme.surface)
@@ -354,9 +354,9 @@ struct CIRuns: View {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(d.jobs ?? []) { j in
                                 VStack(alignment: .leading, spacing: 3) {
-                                    HStack { StatusDot(status: j.status == "completed" ? (j.conclusion ?? "") : j.status); Text(j.name).font(.system(size: 13, weight: .medium)) }
+                                    HStack { StatusDot(status: j.status == "completed" ? (j.conclusion ?? "") : j.status); Text(j.name).font(.system(size: 14, weight: .medium)) }
                                     ForEach(j.steps ?? [], id: \.name) { s in
-                                        HStack(spacing: 6) { StatusDot(status: s.status == "completed" ? (s.conclusion ?? "") : s.status, size: 5); Text(s.name).font(.system(size: 11.5)).foregroundStyle(s.conclusion == "failure" ? Theme.red : Theme.textDim) }.padding(.leading, 14)
+                                        HStack(spacing: 6) { StatusDot(status: s.status == "completed" ? (s.conclusion ?? "") : s.status, size: 5); Text(s.name).font(.system(size: 12.5)).foregroundStyle(s.conclusion == "failure" ? Theme.red : Theme.textDim) }.padding(.leading, 14)
                                     }
                                 }
                             }
@@ -418,8 +418,8 @@ struct PullRequests: View {
             List(prs, selection: $selected) { p in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack { Text("#\(p.number)").font(Theme.monoSmall).foregroundStyle(Theme.accent); Pill(text: p.isDraft == true ? "draft" : p.state.lowercased(), color: p.state == "OPEN" ? Theme.green : p.state == "MERGED" ? Theme.purple : Theme.textDim) }
-                    Text(p.title).font(.system(size: 12.5)).lineLimit(2)
-                    Text("\(p.headRefName ?? "") → \(p.baseRefName ?? "") · +\(p.additions ?? 0) −\(p.deletions ?? 0)").font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
+                    Text(p.title).font(.system(size: 13.5)).lineLimit(2)
+                    Text("\(p.headRefName ?? "") → \(p.baseRefName ?? "") · +\(p.additions ?? 0) −\(p.deletions ?? 0)").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
                 }
                 .tag(p.number).listRowBackground(selected == p.number ? Theme.hover : Theme.surface)
             }

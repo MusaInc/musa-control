@@ -1,1 +1,1 @@
-[{"id": 2, "ts": 1794057765551, "sha": "b", "size": 412, "source": "agent", "session": "claude:sample-1", "added": 2, "removed": 1}, {"id": 1, "ts": 1794057145551, "sha": "a", "size": 380, "source": "disk", "session": null, "added": null, "removed": null}]
+[{"id": 2, "ts": 1794085131848, "sha": "b", "size": 412, "source": "agent", "session": "claude:sample-1", "added": 2, "removed": 1}, {"id": 1, "ts": 1794084511848, "sha": "a", "size": 380, "source": "disk", "session": null, "added": null, "removed": null}]

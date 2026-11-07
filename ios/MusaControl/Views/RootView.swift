@@ -1,8 +1,13 @@
 import SwiftUI
 
+/// App shell: sidebar + content. The sidebar collapses to an icon rail, never
+/// to nothing, so navigation can't be hidden by accident (the old split view
+/// hid its own toggle along with the navigation bar, and a dismissed sidebar
+/// had no way back). Narrow windows (Slide Over, Stage Manager, iPhone
+/// widths) always show the rail; the full sidebar opens over the content and
+/// closes on a tap outside or after navigating.
 struct RootView: View {
     @Environment(AppModel.self) private var app
-    @State private var columns: NavigationSplitViewVisibility = .all
 
     var body: some View {
         @Bindable var app = app
@@ -10,19 +15,42 @@ struct RootView: View {
             if app.phase == .unpaired {
                 PairingView()
             } else {
-                NavigationSplitView(columnVisibility: $columns) {
-                    Sidebar()
-                        .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 260)
-                } detail: {
-                    VStack(spacing: 0) {
-                        if case .offline(let msg) = app.phase { OfflineBar(message: msg) }
-                        detail
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                GeometryReader { geo in
+                    let compact = geo.size.width < 700
+                    let full = app.sidebarExpanded && !compact
+                    ZStack(alignment: .leading) {
+                        HStack(spacing: 0) {
+                            Sidebar(style: full ? .full : .rail, compact: compact)
+                                .frame(width: full ? 236 : 64)
+                            Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
+                            VStack(spacing: 0) {
+                                if case .offline(let msg) = app.phase { OfflineBar(message: msg) }
+                                detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+                            }
+                            .background(Theme.bg)
+                        }
+                        if compact && app.sidebarOverlay {
+                            Color.black.opacity(0.22).ignoresSafeArea()
+                                .onTapGesture { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
+                                .accessibilityLabel(Text("Close sidebar"))
+                                .transition(.opacity)
+                            Sidebar(style: .full, compact: true)
+                                .frame(width: min(300, geo.size.width - 48))
+                                .background(Theme.surface)
+                                .shadow(color: .black.opacity(0.18), radius: 18, x: 4)
+                                .transition(.move(edge: .leading))
+                                .gesture(DragGesture(minimumDistance: 24).onEnded { v in
+                                    if v.translation.width < -50 { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
+                                })
+                        }
                     }
-                    .background(Theme.bg)
-                    .toolbar(.hidden, for: .navigationBar)
+                    // Swipe in from the left edge to show the full sidebar.
+                    .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { v in
+                        guard v.startLocation.x < 28, v.translation.width > 70, abs(v.translation.height) < 60 else { return }
+                        withAnimation(.snappy(duration: 0.22)) { if compact { app.sidebarOverlay = true } else { app.sidebarExpanded = true } }
+                    })
+                    .onChange(of: compact) { _, _ in app.sidebarOverlay = false }
                 }
-                .navigationSplitViewStyle(.balanced)
             }
         }
         .background(Theme.bg.ignoresSafeArea())
@@ -47,53 +75,89 @@ struct RootView: View {
 }
 
 struct Sidebar: View {
+    enum Style { case full, rail }
+    let style: Style
+    var compact = false
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Image("SidebarMark").resizable().frame(width: 22, height: 22).clipShape(RoundedRectangle(cornerRadius: 5))
-                Text("Musa Control").font(.system(size: 14, weight: .semibold))
-                Spacer()
-                ConnectionDot()
-            }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
-
+        VStack(alignment: style == .full ? .leading : .center, spacing: 0) {
+            header
             ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(AppSection.allCases) { s in
-                        SidebarRow(section: s, selected: app.section == s, badge: badge(for: s)) { app.go(s) }
+                        SidebarRow(section: s, selected: app.section == s, badge: badge(for: s), rail: style == .rail) { navigate { app.go(s) } }
                     }
-                    if !activeProjects.isEmpty {
-                        SectionHeader(title: "Active").padding(.top, 8)
+                    if style == .full && !activeProjects.isEmpty {
+                        SectionHeader(title: "Active projects").padding(.top, 10)
                         ForEach(activeProjects) { p in
-                            Button { app.openWorkspace(p.id) } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: p.icon).font(.system(size: 11)).frame(width: 16).foregroundStyle(Theme.textDim)
-                                    Text(p.name).font(.system(size: 12.5)).lineLimit(1)
+                            Button { navigate { app.openWorkspace(p.id) } } label: {
+                                HStack(spacing: 9) {
+                                    Image(systemName: p.icon).font(.system(size: 12)).frame(width: 18).foregroundStyle(Theme.textDim)
+                                    Text(p.name).font(.system(size: 13.5)).lineLimit(1)
                                     Spacer()
                                     StatusDot(status: "working", size: 6)
                                 }
-                                .padding(.horizontal, 12).frame(height: 30).contentShape(Rectangle())
-                                .background(app.section == .workspaces && app.workspaceProject == p.id ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 6))
+                                .padding(.horizontal, 12).frame(height: 34).contentShape(Rectangle())
+                                .background(app.section == .workspaces && app.workspaceProject == p.id ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 8))
                             }
-                            .buttonStyle(.plain).padding(.horizontal, 6)
+                            .buttonStyle(.plain).padding(.horizontal, 8)
                         }
                     }
                 }
-                .padding(.top, 2)
+                .padding(.top, 4)
             }
             Spacer(minLength: 0)
-            Button { app.launcherProject = app.workspaceProject; app.showLauncher = true } label: {
-                Label("New agent task", systemImage: "plus").font(.system(size: 12.5, weight: .medium))
-                    .frame(maxWidth: .infinity).frame(height: 34)
-                    .background(Theme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 7))
-                    .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.plain).padding(12)
-            .keyboardShortcut("n", modifiers: [.command, .shift])
+            newTask
         }
         .background(Theme.surface)
+    }
+
+    @ViewBuilder var header: some View {
+        if style == .full {
+            HStack(spacing: 9) {
+                Image("SidebarMark").resizable().frame(width: 24, height: 24).clipShape(RoundedRectangle(cornerRadius: 6))
+                Text("Musa Control").font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                ConnectionDot()
+                Spacer(minLength: 0)
+                IconButton(systemName: "sidebar.left", help: compact ? "Close sidebar" : "Collapse sidebar (⌃⌘S)") { toggle() }
+                    .accessibilityIdentifier("sidebar.toggle")
+            }
+            .padding(.leading, 14).padding(.trailing, 6).padding(.top, 10).padding(.bottom, 8)
+        } else {
+            VStack(spacing: 6) {
+                IconButton(systemName: "sidebar.left", help: "Show sidebar (⌃⌘S)") { toggle() }
+                    .accessibilityIdentifier("sidebar.toggle")
+                ConnectionDot()
+            }
+            .padding(.top, 10).padding(.bottom, 6)
+        }
+    }
+
+    @ViewBuilder var newTask: some View {
+        Button { app.launcherProject = app.workspaceProject; app.showLauncher = true; if compact { app.sidebarOverlay = false } } label: {
+            Group {
+                if style == .full { Label("New agent task", systemImage: "plus").font(.system(size: 13.5, weight: .semibold)).frame(maxWidth: .infinity) }
+                else { Image(systemName: "plus").font(.system(size: 15, weight: .semibold)).frame(width: 40) }
+            }
+            .frame(height: 38)
+            .background(Theme.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 9))
+            .foregroundStyle(Theme.accent)
+        }
+        .buttonStyle(.plain).padding(style == .full ? 12 : 10)
+        .help("New agent task (⇧⌘N)")
+        .accessibilityLabel(Text("New agent task"))
+    }
+
+    func toggle() {
+        withAnimation(.snappy(duration: 0.22)) {
+            if compact { app.sidebarOverlay.toggle() } else { app.sidebarExpanded.toggle() }
+        }
+    }
+
+    func navigate(_ f: () -> Void) {
+        f()
+        if compact { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
     }
 
     var activeProjects: [Project] { app.projects.filter { ($0.activeAgents ?? 0) > 0 }.prefix(6).map { $0 } }
@@ -110,26 +174,44 @@ struct SidebarRow: View {
     let section: AppSection
     let selected: Bool
     let badge: Int
+    var rail = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: section.icon).font(.system(size: 13, weight: .medium)).frame(width: 18)
-                    .foregroundStyle(selected ? Theme.accent : Theme.textDim)
-                Text(section.title).font(.system(size: 13, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? Theme.text : Theme.textDim)
-                Spacer()
-                if badge > 0 {
-                    Text("\(badge)").font(.system(size: 10.5, weight: .bold)).foregroundStyle(.black)
-                        .padding(.horizontal, 6).padding(.vertical, 1).background(Theme.yellow, in: Capsule())
+            Group {
+                if rail {
+                    Image(systemName: section.icon).font(.system(size: 16, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? Theme.accent : Theme.textDim)
+                        .frame(width: 44, height: 40)
+                        .background(selected ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 9))
+                        .overlay(alignment: .topTrailing) {
+                            if badge > 0 { Text("\(badge)").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.onAccent).padding(.horizontal, 4.5).padding(.vertical, 1).background(Theme.yellow, in: Capsule()).offset(x: 2, y: -1) }
+                        }
+                        .frame(maxWidth: .infinity)
+                } else {
+                    HStack(spacing: 11) {
+                        Image(systemName: section.icon).font(.system(size: 14, weight: .medium)).frame(width: 20)
+                            .foregroundStyle(selected ? Theme.accent : Theme.textDim)
+                        Text(section.title).font(.system(size: 14, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(selected ? Theme.text : Theme.textDim)
+                        Spacer()
+                        if badge > 0 {
+                            Text("\(badge)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.onAccent)
+                                .padding(.horizontal, 7).padding(.vertical, 1).background(Theme.yellow, in: Capsule())
+                        }
+                    }
+                    .padding(.horizontal, 12).frame(height: 38)
+                    .background(selected ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 9))
                 }
             }
-            .padding(.horizontal, 12).frame(height: 34).contentShape(Rectangle())
-            .background(selected ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 7))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, rail ? 0 : 8)
         .hoverEffect(.highlight)
+        .help(section.title)
+        .accessibilityLabel(Text(badge > 0 ? "\(section.title), \(badge) waiting" : section.title))
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("sidebar.\(section.rawValue)")
     }
 }
@@ -155,12 +237,13 @@ struct OfflineBar: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "wifi.exclamationmark")
-            Text("Can't reach the gateway — \(message). Your agents and sessions keep running on the server.").lineLimit(1)
+            Text("Can't reach the gateway — \(message). Agents keep running on the server; retrying automatically.").lineLimit(2)
             Spacer()
             Button("Retry") { Task { await app.connect() } }.font(Theme.label)
         }
         .font(Theme.caption).foregroundStyle(Theme.text)
-        .padding(.horizontal, 14).frame(height: 32).background(Theme.red.opacity(0.18))
+        .padding(.horizontal, 14).frame(minHeight: 34).background(Theme.red.opacity(0.14))
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 }
 

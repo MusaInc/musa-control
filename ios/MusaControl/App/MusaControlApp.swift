@@ -3,8 +3,19 @@ import UIKit
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        Keychain.migrateAccessibility("deviceToken")
         Notifier.shared.setup()
+        Task { await Notifier.shared.registerIfAllowed() }
         return true
+    }
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Notifier.shared.didRegister(deviceToken: deviceToken)
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        Notifier.shared.didFailToRegister(error)
+    }
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        await Notifier.shared.handleRemote(userInfo)
     }
 }
 
@@ -14,6 +25,7 @@ struct MusaControlApp: App {
     @State private var app = AppModel()
     @State private var terminals = TerminalStore.shared
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("appearance") private var appearance = "system"
 
     var body: some Scene {
         WindowGroup {
@@ -21,11 +33,16 @@ struct MusaControlApp: App {
                 .overlay { LockOverlay() }
                 .environment(app)
                 .environment(terminals)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .tint(Theme.accent)
                 .task { if app.isPaired { await app.connect() } }
                 .onReceive(NotificationCenter.default.publisher(for: .openFromNotification)) { n in
-                    if let s = n.userInfo?["session"] as? String, !s.isEmpty { app.openAgent(s) }
+                    // Deep link: the exact agent session, with its approval in view.
+                    if let s = n.userInfo?["session"] as? String, !s.isEmpty {
+                        app.focusApproval = (n.userInfo?["view"] as? String) == "approval"
+                        app.openAgent(s)
+                        Task { await app.refreshAgents() }
+                    }
                 }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -33,10 +50,11 @@ struct MusaControlApp: App {
             case .background:
                 AppLock.shared.lock()
                 app.suspend()
+                terminals.suspendAll()
                 Notifier.shared.scheduleRefresh()
             case .active:
                 if app.isPaired { app.resume() }
-                terminals.sessions.forEach { if $0.state != .closed { $0.open() } }
+                terminals.resumeVisible()
             default: break
             }
         }
@@ -46,6 +64,7 @@ struct MusaControlApp: App {
                     Button(s.title) { app.go(s) }.keyboardShortcut(s.shortcut, modifiers: .command)
                 }
                 Divider()
+                Button(app.sidebarExpanded ? "Collapse Sidebar" : "Show Sidebar") { withAnimation(.snappy(duration: 0.22)) { app.sidebarExpanded.toggle(); app.sidebarOverlay.toggle() } }.keyboardShortcut("s", modifiers: [.control, .command])
                 Button("Quick Switch…") { app.showSwitcher = true }.keyboardShortcut("k", modifiers: .command)
                 Button("New Agent Task…") { app.launcherProject = app.workspaceProject; app.showLauncher = true }.keyboardShortcut("n", modifiers: [.command, .shift])
                 Button(app.followPaused ? "Resume Follow Agent" : "Pause Follow Agent") { app.followPaused.toggle() }.keyboardShortcut("f", modifiers: [.command, .shift])

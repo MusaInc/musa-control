@@ -63,7 +63,7 @@ struct FileBrowser: View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
-                TextField(searchMode == "name" ? "Find file" : "Search in files", text: $query).font(.system(size: 13)).textInputAutocapitalization(.never).autocorrectionDisabled()
+                TextField(searchMode == "name" ? "Find file" : "Search in files", text: $query).font(.system(size: 14)).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .onSubmit { Task { await search() } }
                 Picker("", selection: $searchMode) { Image(systemName: "doc").tag("name"); Image(systemName: "text.magnifyingglass").tag("content") }.pickerStyle(.segmented).frame(width: 74)
             }
@@ -140,12 +140,12 @@ struct FileBrowser: View {
             if e.dir { files.browsePath[projectId] = e.path } else { files.open(project: projectId, path: e.path) }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: e.dir ? "folder.fill" : icon(e.name)).font(.system(size: 12)).foregroundStyle(e.dir ? Theme.accent.opacity(0.8) : Theme.textDim).frame(width: 18)
-                Text(e.name).font(.system(size: 13)).foregroundStyle(e.ignored == true ? Theme.textFaint : Theme.text).lineLimit(1)
+                Image(systemName: e.dir ? "folder.fill" : icon(e.name)).font(.system(size: 13)).foregroundStyle(e.dir ? Theme.accent.opacity(0.8) : Theme.textDim).frame(width: 18)
+                Text(e.name).font(.system(size: 14)).foregroundStyle(e.ignored == true ? Theme.textFaint : Theme.text).lineLimit(1)
                 if recent.contains(e.path) { Circle().fill(Theme.blue).frame(width: 6, height: 6).help("Changed while you were watching") }
                 Spacer()
-                if let g = gitFiles[e.path] { Text(g).font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(g == "?" || g == "A" ? Theme.green : g == "D" ? Theme.red : Theme.yellow) }
-                if !e.dir { Text(Fmt.bytes(e.size)).font(.system(size: 10)).foregroundStyle(Theme.textFaint) }
+                if let g = gitFiles[e.path] { Text(g).font(.system(size: 11.5, weight: .bold, design: .monospaced)).foregroundStyle(g == "?" || g == "A" ? Theme.green : g == "D" ? Theme.red : Theme.yellow) }
+                if !e.dir { Text(Fmt.bytes(e.size)).font(.system(size: 11.5)).foregroundStyle(Theme.textFaint) }
             }
             .frame(height: 26).contentShape(Rectangle())
         }
@@ -289,7 +289,7 @@ struct FileViewerPanel: View {
         let ext = (path as NSString).pathExtension.lowercased()
         if let c = content, c.binary || c.tooLarge == true {
             if ["png", "jpg", "jpeg", "gif", "webp"].contains(ext) {
-                AuthImage(path: "/api/projects/\(projectId)/raw", query: ["path": path]).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black)
+                AuthImage(path: "/api/projects/\(projectId)/raw", query: ["path": path]).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color(Theme.terminalBg))
             } else if ["mp4", "mov", "m4v", "webm"].contains(ext) {
                 VideoPlayerView(url: app.client.url("/api/projects/\(projectId)/raw", ["path": path]), token: app.client.token)
             } else if ext == "pdf" {
@@ -406,9 +406,9 @@ struct RevisionHistory: View {
                         if let a = r.added, let d = r.removed { Text("+\(a)").foregroundStyle(Theme.green); Text("−\(d)").foregroundStyle(Theme.red) }
                     }.font(Theme.monoSmall)
                     HStack(spacing: 4) {
-                        Image(systemName: r.source == "agent" ? "sparkles" : "internaldrive").font(.system(size: 9))
-                        Text(r.source == "agent" ? (app.agent(r.session)?.agentName ?? "Agent") : "Disk change").font(.system(size: 10.5))
-                        Text(Fmt.bytes(r.size)).font(.system(size: 10)).foregroundStyle(Theme.textFaint)
+                        Image(systemName: r.source == "agent" ? "sparkles" : "internaldrive").font(.system(size: 10.5))
+                        Text(r.source == "agent" ? (app.agent(r.session)?.agentName ?? "Agent") : "Disk change").font(.system(size: 12))
+                        Text(Fmt.bytes(r.size)).font(.system(size: 11.5)).foregroundStyle(Theme.textFaint)
                     }.foregroundStyle(Theme.textDim)
                 }
                 .tag(r.id).listRowBackground(selected == r.id ? Theme.hover : Theme.surface)
@@ -446,7 +446,7 @@ struct VideoPlayerView: View {
     let token: String?
     @State private var player: AVPlayer?
     var body: some View {
-        VideoPlayer(player: player).background(Color.black)
+        VideoPlayer(player: player).background(Color(Theme.terminalBg))
             .onAppear {
                 let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": "Bearer \(token ?? "")"]])
                 player = AVPlayer(playerItem: AVPlayerItem(asset: asset))

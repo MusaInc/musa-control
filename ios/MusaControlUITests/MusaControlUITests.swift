@@ -5,10 +5,10 @@ import XCTest
 final class MusaControlUITests: XCTestCase {
     override func setUp() { continueAfterFailure = true }
 
-    func launch(_ section: String, orientation: UIDeviceOrientation) -> XCUIApplication {
+    func launch(_ section: String, orientation: UIDeviceOrientation, appearance: String = "dark", extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestFixtures", "-section", section]
+        app.launchArguments = ["-UITestFixtures", "-section", section, "-appearance", appearance] + extra
         app.launch()
         return app
     }
@@ -22,14 +22,63 @@ final class MusaControlUITests: XCTestCase {
 
     func testEverySectionLandscapeAndPortrait() {
         for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
-            for s in ["home", "workspaces", "agents", "terminal", "files", "visuals", "git", "settings"] {
-                let app = launch(s, orientation: orientation)
-                XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-                sleep(3)
-                snap(app, "\(tag)-\(s)")
-                app.terminate()
+            for appearance in ["dark", "light"] {
+                let sections = orientation == .portrait && appearance == "light" ? ["home", "agents", "settings"] : ["home", "workspaces", "agents", "terminal", "files", "visuals", "git", "settings"]
+                for s in sections {
+                    let app = launch(s, orientation: orientation, appearance: appearance)
+                    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+                    sleep(3)
+                    snap(app, "\(tag)-\(appearance)-\(s)")
+                    app.terminate()
+                }
             }
         }
+    }
+
+    /// The reported bug: a dismissed sidebar disappeared with no way back.
+    /// Collapse → navigate → restart → navigation still reachable → restore.
+    func testSidebarCanAlwaysBeRestored() {
+        var app = launch("home", orientation: .landscapeLeft, extra: ["-sidebar.expanded", "YES"])
+        let toggle = app.buttons["sidebar.toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 6), "sidebar toggle visible")
+        snap(app, "sidebar-1-expanded")
+        toggle.tap(); sleep(1)
+        snap(app, "sidebar-2-collapsed-rail")
+        XCTAssertTrue(app.buttons["sidebar.agents"].exists, "rail keeps navigation when collapsed")
+        app.buttons["sidebar.agents"].tap(); sleep(1)
+        XCTAssertTrue(app.buttons["sidebar.toggle"].exists, "toggle survives switching screens")
+        app.terminate()
+
+        // Restart: the collapsed preference is kept, navigation is still there.
+        app = launch("agents", orientation: .landscapeLeft)
+        XCTAssertTrue(app.buttons["sidebar.toggle"].waitForExistence(timeout: 6), "toggle after restart")
+        XCTAssertTrue(app.buttons["sidebar.files"].exists, "rail after restart")
+        snap(app, "sidebar-3-after-restart")
+        app.buttons["sidebar.toggle"].tap(); sleep(1)
+        XCTAssertTrue(app.staticTexts["Musa Control"].waitForExistence(timeout: 3), "full sidebar restored")
+        snap(app, "sidebar-4-restored")
+        app.terminate()
+
+        // Portrait: rail and toggle are still reachable.
+        app = launch("home", orientation: .portrait)
+        XCTAssertTrue(app.buttons["sidebar.toggle"].waitForExistence(timeout: 6), "toggle in portrait")
+        XCTAssertTrue(app.buttons["sidebar.settings"].exists)
+        snap(app, "sidebar-5-portrait")
+        app.terminate()
+    }
+
+    func testAgentActivityRendering() {
+        for appearance in ["dark", "light"] {
+            let app = launch("agents", orientation: .landscapeLeft, appearance: appearance)
+            sleep(4)
+            snap(app, "agent-activity-\(appearance)")
+            app.swipeDown(); sleep(1)
+            snap(app, "agent-activity-scrolled-\(appearance)")
+            app.terminate()
+        }
+        let app = launch("agents", orientation: .portrait)
+        sleep(4)
+        snap(app, "agent-activity-portrait")
     }
 
     func testNavigationAndLauncher() {

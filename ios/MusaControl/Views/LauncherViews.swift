@@ -14,12 +14,13 @@ struct AgentLauncher: View {
     @State private var busy = false
     @State private var error: String?
     @State private var duplicate: String?
+    @State private var errorOutput: String?
     @FocusState private var focus: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("New agent task").font(.system(size: 18, weight: .semibold))
+                Text("New agent task").font(.system(size: 19, weight: .semibold))
                 Spacer()
                 IconButton(systemName: "xmark", help: "Close") { dismiss() }
             }
@@ -27,8 +28,11 @@ struct AgentLauncher: View {
                 Label("Claude Code", systemImage: "sparkle").tag("claude")
                 Label("Codex", systemImage: "terminal").tag("codex")
             }.pickerStyle(.segmented)
+            // The project decides where the agent runs and what it can edit, so
+            // it is never chosen silently: the last workspace is only a
+            // suggestion and is named on the Start button.
             HStack {
-                Text("Project").font(Theme.label).foregroundStyle(Theme.textDim)
+                Text("Runs in").font(Theme.label).foregroundStyle(Theme.textDim)
                 ProjectPicker(selection: $project)
                 Spacer()
                 Picker("Permissions", selection: $mode) {
@@ -44,11 +48,16 @@ struct AgentLauncher: View {
             }
             TextField("What should \(agent == "claude" ? "Claude Code" : "Codex") do?", text: $prompt, axis: .vertical)
                 .lineLimit(4...12).font(.system(size: 14)).focused($focus)
-                .padding(10).background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
+                .padding(12).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("launcher.prompt")
             Text("Runs on the server in tmux and keeps going if the iPad disconnects. Approvals arrive here as cards and notifications.")
                 .font(Theme.caption).foregroundStyle(Theme.textFaint)
-            if let error { Label(error, systemImage: "exclamationmark.triangle").font(Theme.caption).foregroundStyle(Theme.red) }
+            if let error {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(error, systemImage: "exclamationmark.triangle").font(Theme.caption).foregroundStyle(Theme.red)
+                    if let out = errorOutput, !out.isEmpty { LogBox(text: out, maxHeight: 140) }
+                }
+            }
             if let duplicate {
                 HStack {
                     Button("Open the running session") { app.openAgent(duplicate); dismiss() }
@@ -58,21 +67,26 @@ struct AgentLauncher: View {
             HStack {
                 Spacer()
                 Button { launch(allowDuplicate: false) } label: {
-                    HStack { if busy { ProgressView().controlSize(.small) }; Text("Start").font(.system(size: 14, weight: .semibold)) }
-                        .padding(.horizontal, 22).frame(height: 38).background(project == nil ? Theme.hover : Theme.accent, in: RoundedRectangle(cornerRadius: 9)).foregroundStyle(.black)
+                    HStack { if busy { ProgressView().controlSize(.small) }; Text(startLabel).font(.system(size: 14, weight: .semibold)).lineLimit(1) }
+                        .padding(.horizontal, 22).frame(height: 38).background(project == nil ? Theme.hover : Theme.accent, in: RoundedRectangle(cornerRadius: 9)).foregroundStyle(Theme.onAccent)
                 }
                 .buttonStyle(.plain).disabled(project == nil || busy).keyboardShortcut(.return, modifiers: .command)
                 .accessibilityIdentifier("launcher.start")
             }
         }
-        .padding(20).frame(minWidth: 520).background(Theme.bg)
+        .padding(20).frame(minWidth: 360, idealWidth: 600).background(Theme.surface)
         .onAppear { project = initialProject ?? app.workspaceProject; focus = true }
         .onChange(of: agent) { _, a in mode = "default"; UserDefaults.standard.set(a, forKey: "launcher.agent") }
     }
 
+    var startLabel: String {
+        guard let p = app.project(project) else { return "Choose a project" }
+        return "Start \(agent == "claude" ? "Claude Code" : "Codex") in \(p.name)"
+    }
+
     func launch(allowDuplicate: Bool) {
         guard let project else { return }
-        busy = true; error = nil; duplicate = nil
+        busy = true; error = nil; duplicate = nil; errorOutput = nil
         Task {
             defer { busy = false }
             do {
@@ -85,6 +99,9 @@ struct AgentLauncher: View {
             } catch let e as GatewayError where e.isConflict {
                 error = e.message
                 duplicate = e.decode([String: String].self)?["duplicate"]
+            } catch let e as GatewayError {
+                self.error = e.message
+                errorOutput = e.decode([String: JSONValue].self)?["output"]?.string
             } catch { self.error = error.localizedDescription }
         }
     }
@@ -121,7 +138,7 @@ struct QuickSwitcher: View {
                 Button { i.run(); dismiss() } label: {
                     HStack(spacing: 10) {
                         Image(systemName: i.icon).frame(width: 20).foregroundStyle(Theme.accent)
-                        VStack(alignment: .leading) { Text(i.title).font(.system(size: 13.5)); Text(i.subtitle).font(Theme.caption).foregroundStyle(Theme.textDim) }
+                        VStack(alignment: .leading) { Text(i.title).font(.system(size: 14.5)); Text(i.subtitle).font(Theme.caption).foregroundStyle(Theme.textDim) }
                     }
                 }.buttonStyle(.plain).listRowBackground(Theme.surface)
             }

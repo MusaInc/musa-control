@@ -59,7 +59,7 @@ struct RemoteDesktopPanel: View {
             ZStack(alignment: .bottomLeading) {
                 if let controller {
                     VNCWebView(controller: controller).id("\(display)-\(controller.mode)")
-                        .background(Color.black)
+                        .background(Color(Theme.terminalBg))
                     stats(controller)
                 }
             }
@@ -77,7 +77,7 @@ struct RemoteDesktopPanel: View {
                 .padding(8).background(Theme.raised)
             }
         }
-        .background(Color.black)
+        .background(Color(Theme.terminalBg))
         .task { display = initialDisplay; await loadDisplays(); makeController() }
         .fullScreenCover(isPresented: $fullscreen) {
             ZStack(alignment: .topTrailing) {
@@ -85,7 +85,7 @@ struct RemoteDesktopPanel: View {
                 Button { fullscreen = false } label: { Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).padding(10).background(.ultraThinMaterial, in: Circle()) }
                     .buttonStyle(.plain).padding(16)
             }
-            .background(Color.black)
+            .background(Color(Theme.terminalBg))
         }
         .confirmationDialog("Take control of display :\(display)?", isPresented: $confirmControl, titleVisibility: .visible) {
             Button("Take control") { control = true; controller?.setMode("control"); makeController() }
@@ -126,7 +126,7 @@ struct RemoteDesktopPanel: View {
             if let k = c.kbps, c.connected { Text("· \(k > 1000 ? String(format: "%.1f Mb/s", Double(k) / 1000) : "\(k) kb/s")") }
             if let s = c.size { Text("· \(Int(s.width))×\(Int(s.height))") }
         }
-        .font(.system(size: 10.5, weight: .medium)).foregroundStyle(.white.opacity(0.85))
+        .font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.85))
         .padding(.horizontal, 8).padding(.vertical, 4).background(.black.opacity(0.55), in: Capsule()).padding(8)
         .allowsHitTesting(false)
     }
@@ -161,7 +161,7 @@ struct ScreenshotGallery: View {
                                 if s.source == "agent" { Image(systemName: "sparkles") }
                                 if let w = s.width, let h = s.height { Spacer(); Text("\(w)×\(h)") }
                             }
-                            .font(.system(size: 10)).foregroundStyle(Theme.textFaint)
+                            .font(.system(size: 11.5)).foregroundStyle(Theme.textFaint)
                         }
                     }
                     .buttonStyle(.plain)
@@ -196,7 +196,7 @@ struct ScreenshotDetail: View {
     @State private var image: UIImage?
     var body: some View {
         ZStack {
-            Color.black
+            Color(Theme.terminalBg)
             if let image { ZoomableImage(image: image) } else { ProgressView() }
         }
         .task(id: shot.id) { image = await ImageCache.shared.image(client: app.client, path: "/api/screenshots/\(shot.id)/image", query: [:]) }
@@ -235,7 +235,7 @@ struct ScreenshotViewer: View {
             }
             .padding(10).background(Theme.raised)
             ZStack {
-                Color.black
+                Color(Theme.terminalBg)
                 if let image {
                     if annotate {
                         Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
@@ -250,7 +250,7 @@ struct ScreenshotViewer: View {
                     ForEach(app.agents.filter { $0.controllable && $0.isLive }) { a in Button("\(a.agentName): \(a.title)") { sendTo = a.id; send() } }
                 } label: {
                     Label("Send to agent", systemImage: "paperplane").font(Theme.label).padding(.horizontal, 12).frame(height: 34)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(.black)
+                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.onAccent)
                 }
                 .disabled(app.agents.filter { $0.controllable && $0.isLive }.isEmpty)
             }
@@ -338,7 +338,7 @@ struct CompareView: View {
                     .gesture(DragGesture(minimumDistance: 0).onChanged { v in split = min(1, max(0, v.location.x / g.size.width)) })
                 }
             }
-            .background(Color.black)
+            .background(Color(Theme.terminalBg))
         }
     }
 }

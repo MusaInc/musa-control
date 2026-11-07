@@ -74,7 +74,7 @@ struct VNCWebView: UIViewRepresentable {
         cfg.allowsInlineMediaPlayback = true
         let w = WKWebView(frame: .zero, configuration: cfg)
         w.isOpaque = false
-        w.backgroundColor = UIColor(red: 0.055, green: 0.059, blue: 0.067, alpha: 1)
+        w.backgroundColor = UIColor(Theme.bg)
         w.scrollView.isScrollEnabled = true
         w.scrollView.minimumZoomScale = 1
         w.scrollView.maximumZoomScale = 6

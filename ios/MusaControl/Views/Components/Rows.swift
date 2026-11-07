@@ -7,14 +7,14 @@ struct AgentRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                Image(systemName: agent.icon).font(.system(size: 13, weight: .medium))
+                Image(systemName: agent.icon).font(.system(size: 14, weight: .medium))
                     .frame(width: 28, height: 28).background(Theme.hover, in: RoundedRectangle(cornerRadius: 7))
                     .foregroundStyle(agent.agent == "claude" ? Theme.accent : Theme.blue)
                 StatusDot(status: agent.status, size: 8).offset(x: 3, y: 3)
             }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(agent.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                    Text(agent.title).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 4)
                     Text(Fmt.ago(agent.lastActivity)).font(Theme.caption).foregroundStyle(Theme.textFaint)
                 }
@@ -40,15 +40,15 @@ struct EventRow: View {
     @Environment(AppModel.self) private var app
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: event.icon).font(.system(size: 11)).foregroundStyle(event.tint == "other" ? Theme.textFaint : Theme.status(event.tint)).frame(width: 16)
+            Image(systemName: event.icon).font(.system(size: 12)).foregroundStyle(event.tint == "other" ? Theme.textFaint : Theme.status(event.tint)).frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
-                Text(event.title).font(.system(size: 12.5)).foregroundStyle(Theme.text).lineLimit(2)
+                Text(event.title).font(.system(size: 13.5)).foregroundStyle(Theme.text).lineLimit(2)
                 HStack(spacing: 5) {
                     Text(Fmt.time(event.ts))
                     if showProject, let p = app.project(event.project) { Text("·"); Text(p.name) }
                     if let a = event.detail?["agent"]?.string { Text("·"); Text(a == "claude" ? "Claude Code" : "Codex") }
                 }
-                .font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
+                .font(.system(size: 12)).foregroundStyle(Theme.textFaint)
             }
             Spacer(minLength: 0)
         }
@@ -69,44 +69,51 @@ struct ApprovalCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: "hand.raised.fill").foregroundStyle(Theme.yellow)
-                Text("\(agent.agentName) is asking").font(Theme.label).foregroundStyle(Theme.yellow)
+                Text("\(agent.agentName) needs your approval").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.yellow)
                 Spacer()
                 Pill(text: prompt.kind, color: Theme.yellow)
             }
-            Text(prompt.question).font(.system(size: 14, weight: .semibold))
+            Text(prompt.question).font(.system(size: 15.5, weight: .semibold)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
             if let cmd = prompt.command {
-                Text(cmd).font(Theme.mono).padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.bg, in: RoundedRectangle(cornerRadius: 6)).textSelection(.enabled)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(cmd).font(Theme.mono).foregroundStyle(Theme.text).padding(10).textSelection(.enabled)
+                }
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
             }
-            DisclosureGroup("Full prompt") {
-                ScrollView { Text(prompt.context).font(Theme.monoSmall).foregroundStyle(Theme.textDim).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }.frame(maxHeight: 160)
+            DisclosureGroup("What the agent's screen shows") {
+                ScrollView { Text(prompt.context).font(Theme.monoSmall).foregroundStyle(Theme.textDim).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled) }.frame(maxHeight: 180)
             }
             .font(Theme.caption).foregroundStyle(Theme.textDim)
-            VStack(spacing: 6) {
-                ForEach(prompt.options) { o in
-                    Button { answer(o) } label: {
-                        HStack {
-                            if busy == o.index { ProgressView().controlSize(.small) }
-                            Text(o.label).font(.system(size: 13, weight: o.tone == "allow" && o.index == 0 ? .semibold : .regular)).multilineTextAlignment(.leading)
-                            Spacer()
-                            if o.index == prompt.selected { Text("highlighted").font(.system(size: 10)).foregroundStyle(Theme.textFaint) }
-                        }
-                        .padding(.horizontal, 12).frame(minHeight: 38)
-                        .background(bg(o), in: RoundedRectangle(cornerRadius: 8))
-                        .foregroundStyle(o.tone == "deny" ? Theme.red : Theme.text)
-                    }
-                    .buttonStyle(.plain).disabled(busy != nil)
-                    .accessibilityIdentifier("approval.option.\(o.index)")
-                }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { ForEach(prompt.options) { o in optionButton(o) } }
+                VStack(spacing: 6) { ForEach(prompt.options) { o in optionButton(o) } }
             }
-            if let error { Text(error).font(Theme.caption).foregroundStyle(Theme.red) }
+            if let error { Label(error, systemImage: "exclamationmark.triangle").font(Theme.caption).foregroundStyle(Theme.red) }
         }
         .padding(14)
-        .background(Theme.yellow.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.yellow.opacity(0.35)))
+        .background(Theme.yellow.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.yellow.opacity(0.4)))
+        .accessibilityElement(children: .contain)
     }
 
-    func bg(_ o: ApprovalOption) -> Color { o.tone == "allow" ? Theme.green.opacity(0.13) : o.tone == "deny" ? Theme.red.opacity(0.1) : Theme.raised }
+    func optionButton(_ o: ApprovalOption) -> some View {
+        Button { answer(o) } label: {
+            HStack(spacing: 6) {
+                if busy == o.index { ProgressView().controlSize(.small) }
+                Text(o.label).font(.system(size: 14, weight: o.tone == "allow" && o.index == firstAllow ? .semibold : .regular)).multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 40)
+            .background(bg(o), in: RoundedRectangle(cornerRadius: 9))
+            .foregroundStyle(o.tone == "deny" ? Theme.red : o.tone == "allow" && o.index == firstAllow ? Theme.green : Theme.text)
+        }
+        .buttonStyle(.plain).disabled(busy != nil)
+        .accessibilityIdentifier("approval.option.\(o.index)")
+    }
+    var firstAllow: Int { prompt.options.first { $0.tone == "allow" }?.index ?? -1 }
+
+    func bg(_ o: ApprovalOption) -> Color { o.tone == "allow" && o.index == firstAllow ? Theme.green.opacity(0.14) : o.tone == "deny" ? Theme.red.opacity(0.09) : Theme.raised }
 
     func answer(_ o: ApprovalOption) {
         busy = o.index; error = nil
@@ -128,14 +135,14 @@ struct PanelHeader<Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.textDim)
-            Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textDim)
+            Text(title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
             if let subtitle { Text(subtitle).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1).truncationMode(.middle) }
             Spacer(minLength: 4)
             trailing()
         }
-        .padding(.leading, 10).padding(.trailing, 4).frame(height: 34)
-        .background(Theme.raised)
+        .padding(.leading, 12).padding(.trailing, 4).frame(height: 40)
+        .background(Theme.surface)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 }
@@ -155,7 +162,7 @@ struct ProjectPicker: View {
             HStack(spacing: 6) {
                 Image(systemName: app.project(selection)?.icon ?? "folder")
                 Text(app.project(selection)?.name ?? "Choose project").lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 10.5))
             }
             .font(Theme.label).foregroundStyle(Theme.text)
             .padding(.horizontal, 10).frame(height: 30).background(Theme.raised, in: RoundedRectangle(cornerRadius: 7))

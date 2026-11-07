@@ -37,7 +37,7 @@ struct PairingView: View {
                 Button(action: submit) {
                     HStack { if busy { ProgressView().controlSize(.small) }; Text(busy ? "Pairing…" : "Pair this iPad") }
                         .font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity).frame(height: 44)
-                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(.black)
+                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(Theme.onAccent)
                 }
                 .buttonStyle(.plain).disabled(busy || password.isEmpty)
                 Text("Everything runs on the server. Agents, builds and terminals keep going when the iPad sleeps or loses signal.")

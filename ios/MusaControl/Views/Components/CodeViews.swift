@@ -55,7 +55,7 @@ struct CodeEditor: UIViewRepresentable {
     func makeUIView(context: Context) -> EditorTextView {
         let v = EditorTextView()
         v.onSave = onSave
-        v.backgroundColor = UIColor(red: 0.090, green: 0.096, blue: 0.108, alpha: 1)
+        v.backgroundColor = Theme.editorBg
         v.autocapitalizationType = .none
         v.autocorrectionType = .no
         v.smartQuotesType = .no
@@ -67,7 +67,7 @@ struct CodeEditor: UIViewRepresentable {
         v.alwaysBounceVertical = true
         v.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 40, right: 8)
         v.delegate = context.coordinator
-        v.tintColor = UIColor(red: 0.941, green: 0.749, blue: 0.478, alpha: 1)
+        v.tintColor = UIColor(Theme.accent)
         v.attributedText = SyntaxHighlighter.highlight(text, path: path, font: font)
         return v
     }

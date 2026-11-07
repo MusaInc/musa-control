@@ -26,11 +26,9 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 	<key>UIBackgroundModes</key>
-	<array><string>fetch</string><string>processing</string></array>
+	<array><string>fetch</string><string>processing</string><string>remote-notification</string></array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array><string>uk.co.musastudios.musacontrol.refresh</string></array>
-	<key>UIUserInterfaceStyle</key><string>Dark</string>
-	<key>UIStatusBarStyle</key><string>UIStatusBarStyleLightContent</string>
 	<key>NSPhotoLibraryAddUsageDescription</key><string>Save screenshots from your projects to Photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key><string>Attach images to instructions for your coding agents.</string>
 	<key>NSFaceIDUsageDescription</key><string>Unlock Musa Control with Face ID.</string>

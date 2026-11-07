@@ -37,7 +37,7 @@ struct TerminalPane: View {
                     StatusDot(status: dot, size: 6)
                     Text(session.title).font(Theme.monoSmall).lineLimit(1)
                     Spacer()
-                    Text(session.tmuxName).font(.system(size: 10)).foregroundStyle(Theme.textFaint)
+                    Text(session.tmuxName).font(.system(size: 11.5)).foregroundStyle(Theme.textFaint)
                 }
                 .padding(.horizontal, 8).frame(height: 24).background(Theme.raised)
             }
@@ -79,7 +79,7 @@ struct TerminalSectionView: View {
                 VStack(spacing: 16) {
                     EmptyNote(icon: "terminal", text: "No terminal open", detail: "Every tab is a real SSH session attached to a tmux session on the server, so work keeps running if the iPad disconnects.")
                     HStack {
-                        Button { store.newShell() } label: { Label("New shell", systemImage: "plus").padding(.horizontal, 14).frame(height: 36).background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(.black) }.buttonStyle(.plain)
+                        Button { store.newShell() } label: { Label("New shell", systemImage: "plus").padding(.horizontal, 14).frame(height: 36).background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.onAccent) }.buttonStyle(.plain)
                         attachMenu
                     }
                     Spacer()
@@ -111,8 +111,8 @@ struct TerminalSectionView: View {
                     ForEach(store.sessions) { s in
                         HStack(spacing: 6) {
                             StatusDot(status: s.state == .connected ? "idle" : s.state == .closed ? "other" : "approval", size: 6)
-                            Text(s.title).font(.system(size: 12, weight: store.selected == s.id ? .semibold : .regular)).lineLimit(1)
-                            Button { store.close(s) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 18, height: 18) }.buttonStyle(.plain).foregroundStyle(Theme.textFaint)
+                            Text(s.title).font(.system(size: 13, weight: store.selected == s.id ? .semibold : .regular)).lineLimit(1)
+                            Button { store.close(s) } label: { Image(systemName: "xmark").font(.system(size: 10.5, weight: .bold)).frame(width: 18, height: 18) }.buttonStyle(.plain).foregroundStyle(Theme.textFaint)
                         }
                         .padding(.leading, 10).padding(.trailing, 4).frame(height: 30)
                         .background(store.selected == s.id ? Theme.surface : .clear, in: RoundedRectangle(cornerRadius: 6))
@@ -158,7 +158,7 @@ struct TerminalSectionView: View {
         HStack(spacing: 4) {
             ForEach([("esc", "\u{1b}"), ("tab", "\t"), ("^C", "\u{03}"), ("^D", "\u{04}"), ("^Z", "\u{1a}"), ("^L", "\u{0c}"), ("^R", "\u{12}"), ("↑", "\u{1b}[A"), ("↓", "\u{1b}[B"), ("←", "\u{1b}[D"), ("→", "\u{1b}[C"), ("tmux ⌃b", "\u{02}"), ("|", "|"), ("~", "~"), ("/", "/")], id: \.0) { k in
                 Button(k.0) { store.current?.send(text: k.1) }
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .frame(minWidth: 36).frame(height: 30).background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
                     .buttonStyle(.plain)
             }

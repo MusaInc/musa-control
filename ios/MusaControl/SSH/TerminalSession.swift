@@ -62,8 +62,8 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
         super.init()
         view.terminalDelegate = self
         view.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        view.nativeBackgroundColor = UIColor(red: 0.059, green: 0.063, blue: 0.071, alpha: 1)
-        view.nativeForegroundColor = UIColor(red: 0.886, green: 0.894, blue: 0.910, alpha: 1)
+        view.nativeBackgroundColor = Theme.terminalBg
+        view.nativeForegroundColor = Theme.terminalFg
         view.backgroundColor = view.nativeBackgroundColor
     }
 
@@ -198,10 +198,38 @@ final class TerminalStore {
     var splitWith: UUID?
     var fontSize: CGFloat = CGFloat(UserDefaults.standard.object(forKey: "terminalFontSize") as? Double ?? 13)
 
+    /// Terminals owned by workspace panels. Not tabs, not persisted as tabs,
+    /// and disconnected when their panel goes away (the tmux session stays).
+    /// Earlier builds added every panel terminal to the saved tabs and
+    /// reconnected all of them on each foreground, leaking SSH connections.
+    @ObservationIgnored private var panelSessions: [String: TerminalSession] = [:]
+
     init() {
-        for name in UserDefaults.standard.stringArray(forKey: "terminalTabs") ?? [] { sessions.append(TerminalSession(tmuxName: name, fontSize: fontSize)) }
+        let saved = UserDefaults.standard.stringArray(forKey: "terminalTabs") ?? []
+        let tabs = saved.filter { !$0.hasPrefix("mc-ws-") }
+        for name in tabs { sessions.append(TerminalSession(tmuxName: name, fontSize: fontSize)) }
+        if tabs.count != saved.count { UserDefaults.standard.set(tabs, forKey: "terminalTabs") }
         selected = sessions.first?.id
     }
+
+    func panelSession(_ name: String, title: String?, directory: String?) -> TerminalSession {
+        if let s = sessions.first(where: { $0.tmuxName == name }) { return s }
+        if let s = panelSessions[name] { return s }
+        let s = TerminalSession(tmuxName: name, title: title, directory: directory, fontSize: fontSize)
+        panelSessions[name] = s
+        return s
+    }
+
+    func releasePanel(_ name: String) {
+        guard let s = panelSessions[name], s.view.window == nil else { return }
+        s.close()
+    }
+
+    /// Background: detach everything (tmux keeps the work running).
+    func suspendAll() { (sessions + Array(panelSessions.values)).forEach { if $0.state != .closed && $0.state != .idle { $0.close() } } }
+    /// Foreground: reconnect only terminals that are actually on screen; the
+    /// rest reconnect when shown (TerminalPane.onAppear).
+    func resumeVisible() { (sessions + Array(panelSessions.values)).forEach { if $0.view.window != nil { $0.open() } } }
 
     func persist() { UserDefaults.standard.set(sessions.map(\.tmuxName), forKey: "terminalTabs") }
 
@@ -229,7 +257,7 @@ final class TerminalStore {
 
     func setFontSize(_ v: CGFloat) {
         fontSize = v; UserDefaults.standard.set(Double(v), forKey: "terminalFontSize")
-        sessions.forEach { $0.setFontSize(v) }
+        (sessions + Array(panelSessions.values)).forEach { $0.setFontSize(v) }
     }
 
     var current: TerminalSession? { sessions.first { $0.id == selected } }

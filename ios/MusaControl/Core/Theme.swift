@@ -1,33 +1,55 @@
 import SwiftUI
+import UIKit
 
-/// Visual language: dark charcoal surfaces, one warm accent, status colours
-/// used only for status. Dense but with ≥ 32 pt hit targets.
+/// Visual language: layered soft charcoal in dark mode, warm off-white in
+/// light mode (never pure black or white), one warm accent, status colours
+/// used only for status. Hierarchy comes from surface steps and type weight
+/// rather than boxes; separators are hairlines.
 enum Theme {
-    static let bg = Color(red: 0.059, green: 0.063, blue: 0.071)          // window
-    static let surface = Color(red: 0.090, green: 0.096, blue: 0.108)     // panels
-    static let raised = Color(red: 0.122, green: 0.129, blue: 0.145)      // headers, cards
-    static let hover = Color(red: 0.157, green: 0.165, blue: 0.184)
-    static let line = Color.white.opacity(0.07)
-    static let lineStrong = Color.white.opacity(0.12)
-    static let text = Color(red: 0.918, green: 0.922, blue: 0.933)
-    static let textDim = Color(red: 0.604, green: 0.616, blue: 0.651)
-    static let textFaint = Color(red: 0.420, green: 0.431, blue: 0.463)
-    static let accent = Color(red: 0.941, green: 0.749, blue: 0.478)      // warm amber
-    static let green = Color(red: 0.369, green: 0.890, blue: 0.604)
-    static let red = Color(red: 0.965, green: 0.408, blue: 0.408)
-    static let yellow = Color(red: 0.980, green: 0.788, blue: 0.341)
-    static let blue = Color(red: 0.459, green: 0.686, blue: 0.996)
-    static let purple = Color(red: 0.725, green: 0.580, blue: 0.996)
+    /// Light/dark pair from RGB components.
+    static func dyn(_ light: (Double, Double, Double), _ dark: (Double, Double, Double), alpha: Double = 1) -> Color {
+        Color(UIColor { t in
+            let c = t.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: c.0, green: c.1, blue: c.2, alpha: alpha)
+        })
+    }
+    static func uiDyn(_ light: (Double, Double, Double), _ dark: (Double, Double, Double)) -> UIColor {
+        UIColor { t in let c = t.userInterfaceStyle == .dark ? dark : light; return UIColor(red: c.0, green: c.1, blue: c.2, alpha: 1) }
+    }
 
-    static let addedBg = Color(red: 0.369, green: 0.890, blue: 0.604).opacity(0.12)
-    static let removedBg = Color(red: 0.965, green: 0.408, blue: 0.408).opacity(0.13)
+    static let bg = dyn((0.957, 0.949, 0.933), (0.122, 0.125, 0.137))          // window: warm off-white / soft charcoal
+    static let surface = dyn((0.984, 0.980, 0.969), (0.149, 0.153, 0.165))     // panels
+    static let raised = dyn((0.929, 0.918, 0.898), (0.180, 0.184, 0.200))      // headers, cards, inputs
+    static let hover = dyn((0.890, 0.878, 0.855), (0.220, 0.224, 0.243))       // selection
+    static let line = dyn((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), alpha: 0.075)
+    static let lineStrong = dyn((0.0, 0.0, 0.0), (1.0, 1.0, 1.0), alpha: 0.14)
+    static let text = dyn((0.114, 0.114, 0.122), (0.922, 0.922, 0.929))
+    static let textDim = dyn((0.345, 0.349, 0.373), (0.678, 0.682, 0.710))      // ≥ 4.5:1 on surfaces
+    static let textFaint = dyn((0.490, 0.494, 0.522), (0.537, 0.541, 0.569))    // metadata only
+    static let accent = dyn((0.690, 0.431, 0.098), (0.937, 0.761, 0.506))       // warm amber
+    static let onAccent = dyn((1, 1, 1), (0.122, 0.110, 0.090))                 // text on accent fills
+    static let green = dyn((0.118, 0.557, 0.322), (0.443, 0.835, 0.604))
+    static let red = dyn((0.788, 0.231, 0.231), (0.953, 0.478, 0.467))
+    static let yellow = dyn((0.659, 0.471, 0.0), (0.949, 0.788, 0.408))
+    static let blue = dyn((0.153, 0.420, 0.800), (0.502, 0.698, 0.973))
+    static let purple = dyn((0.486, 0.333, 0.800), (0.722, 0.612, 0.965))
 
-    static let mono = Font.system(size: 12.5, design: .monospaced)
-    static let monoSmall = Font.system(size: 11, design: .monospaced)
-    static let label = Font.system(size: 12, weight: .medium)
-    static let caption = Font.system(size: 11)
-    static let title = Font.system(size: 15, weight: .semibold)
-    static let radius: CGFloat = 8
+    static let addedBg = dyn((0.118, 0.557, 0.322), (0.443, 0.835, 0.604), alpha: 0.13)
+    static let removedBg = dyn((0.788, 0.231, 0.231), (0.953, 0.478, 0.467), alpha: 0.13)
+
+    /// Terminals and the agent screen mirror stay dark in both modes (ANSI
+    /// colours assume it) but use the same soft charcoal, not black.
+    static let terminalBg = UIColor(red: 0.118, green: 0.122, blue: 0.133, alpha: 1)
+    static let terminalFg = UIColor(red: 0.886, green: 0.890, blue: 0.902, alpha: 1)
+    static let editorBg = uiDyn((0.984, 0.980, 0.969), (0.149, 0.153, 0.165))
+
+    static let mono = Font.system(size: 13, design: .monospaced)
+    static let monoSmall = Font.system(size: 12, design: .monospaced)
+    static let label = Font.system(size: 13, weight: .medium)
+    static let caption = Font.system(size: 12)
+    static let body = Font.system(size: 14.5)
+    static let title = Font.system(size: 16, weight: .semibold)
+    static let radius: CGFloat = 10
 
     static func status(_ s: String) -> Color {
         switch s {
@@ -58,9 +80,9 @@ struct Pill: View {
     let text: String
     var color: Color = Theme.textDim
     var body: some View {
-        Text(text).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(color)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(color.opacity(0.13), in: RoundedRectangle(cornerRadius: 4))
+        Text(text).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(color).lineLimit(1)
+            .padding(.horizontal, 7).padding(.vertical, 2.5)
+            .background(color.opacity(0.14), in: Capsule())
     }
 }
 
@@ -69,7 +91,7 @@ struct SectionHeader: View {
     var trailing: AnyView? = nil
     var body: some View {
         HStack {
-            Text(title.uppercased()).font(.system(size: 10.5, weight: .semibold)).tracking(0.6).foregroundStyle(Theme.textFaint)
+            Text(title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.textDim)
             Spacer()
             if let trailing { trailing }
         }
@@ -83,9 +105,9 @@ struct EmptyNote: View {
     var detail: String? = nil
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: icon).font(.system(size: 22, weight: .light)).foregroundStyle(Theme.textFaint)
-            Text(text).font(Theme.label).foregroundStyle(Theme.textDim)
-            if let detail { Text(detail).font(Theme.caption).foregroundStyle(Theme.textFaint).multilineTextAlignment(.center) }
+            Image(systemName: icon).font(.system(size: 26, weight: .light)).foregroundStyle(Theme.textFaint).padding(.bottom, 2)
+            Text(text).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
+            if let detail { Text(detail).font(Theme.caption).foregroundStyle(Theme.textDim).multilineTextAlignment(.center).frame(maxWidth: 380) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity).padding(20)
     }
@@ -99,8 +121,8 @@ struct IconButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName).font(.system(size: 13, weight: .medium)).foregroundStyle(tint)
-                .frame(width: 30, height: 30).contentShape(Rectangle())
+            Image(systemName: systemName).font(.system(size: 14, weight: .medium)).foregroundStyle(tint)
+                .frame(width: 34, height: 34).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -112,7 +134,7 @@ struct IconButton: View {
 extension View {
     func panelBackground() -> some View { background(Theme.surface) }
     func card() -> some View {
-        padding(10).background(Theme.raised, in: RoundedRectangle(cornerRadius: Theme.radius))
+        padding(12).background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius))
             .overlay(RoundedRectangle(cornerRadius: Theme.radius).stroke(Theme.line))
     }
 }

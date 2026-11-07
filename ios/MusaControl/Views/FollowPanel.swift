@@ -44,7 +44,7 @@ struct FollowPanel: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "scope").foregroundStyle(app.followPaused ? Theme.textFaint : Theme.accent)
-                Text("Follow Agent").font(.system(size: 12, weight: .semibold))
+                Text("Follow Agent").font(.system(size: 13, weight: .semibold))
                 if let f = focus {
                     Text("· \(caption(f))").font(Theme.caption).foregroundStyle(Theme.textDim).lineLimit(1)
                 }
@@ -65,7 +65,8 @@ struct FollowPanel: View {
                 } label: { Image(systemName: app.followPinned == nil ? "pin" : "pin.fill").frame(width: 28, height: 28) }
                 IconButton(systemName: app.followPaused ? "play.fill" : "pause.fill", help: app.followPaused ? "Resume following" : "Pause automatic switching") { app.followPaused.toggle() }
             }
-            .padding(.horizontal, 10).frame(height: 34).background(Theme.raised)
+            .padding(.horizontal, 12).frame(height: 40).background(Theme.surface)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
             Group {
                 if let f = focus {
                     FollowContent(focus: f).id(f.event.stableId)
@@ -160,12 +161,12 @@ struct EvidenceView: View {
         case "agent.plan":
             List(event.detail?["items"]?.array ?? [], id: \.self) { i in
                 Label(i["text"]?.string ?? "", systemImage: i["status"]?.string == "completed" ? "checkmark.circle.fill" : i["status"]?.string == "in_progress" ? "circle.dotted" : "circle")
-                    .font(.system(size: 13)).listRowBackground(Theme.surface)
+                    .font(.system(size: 14)).listRowBackground(Theme.surface)
             }.listStyle(.plain).scrollContentBackground(.hidden)
         default:
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(event.detail?["text"]?.string ?? event.detail?["last"]?.string ?? event.title).font(.system(size: 13)).textSelection(.enabled)
+                    Text(event.detail?["text"]?.string ?? event.detail?["last"]?.string ?? event.title).font(.system(size: 14)).textSelection(.enabled)
                     if let input = event.detail?["input"]?.string { Text(input).font(Theme.monoSmall).foregroundStyle(Theme.textDim).textSelection(.enabled) }
                     Text("No visual output for this step — this is the recorded event.").font(Theme.caption).foregroundStyle(Theme.textFaint)
                 }

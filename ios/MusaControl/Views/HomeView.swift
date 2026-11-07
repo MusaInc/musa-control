@@ -45,7 +45,7 @@ struct HomeView: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(greeting).font(.system(size: 22, weight: .semibold))
-                Text(summary).font(.system(size: 13)).foregroundStyle(Theme.textDim)
+                Text(summary).font(.system(size: 14)).foregroundStyle(Theme.textDim)
             }
             Spacer()
             Button { app.showSwitcher = true } label: {
@@ -54,7 +54,7 @@ struct HomeView: View {
             }.buttonStyle(.plain).keyboardShortcut("k", modifiers: .command)
             Button { app.launcherProject = nil; app.showLauncher = true } label: {
                 Label("New task", systemImage: "plus").font(Theme.label).padding(.horizontal, 12).frame(height: 32)
-                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(.black)
+                    .background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.onAccent)
             }.buttonStyle(.plain).accessibilityIdentifier("home.newTask")
         }
     }
@@ -95,7 +95,7 @@ struct HealthStrip: View {
             if expanded {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 6)], alignment: .leading, spacing: 6) {
                     ForEach(system.services) { s in
-                        HStack(spacing: 6) { StatusDot(status: s.active == "active" ? "idle" : s.active == "failed" ? "failed" : "other", size: 6); Text(s.name).font(Theme.monoSmall).lineLimit(1); Spacer(); Text(s.sub ?? s.active).font(.system(size: 10)).foregroundStyle(Theme.textFaint) }
+                        HStack(spacing: 6) { StatusDot(status: s.active == "active" ? "idle" : s.active == "failed" ? "failed" : "other", size: 6); Text(s.name).font(Theme.monoSmall).lineLimit(1); Spacer(); Text(s.sub ?? s.active).font(.system(size: 11.5)).foregroundStyle(Theme.textFaint) }
                     }
                 }
             }
@@ -104,10 +104,10 @@ struct HealthStrip: View {
     }
     func metric(_ label: String, _ value: String, sub: String, warn: Bool) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label.uppercased()).font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.textFaint)
+            Text(label.uppercased()).font(.system(size: 10.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.textFaint)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(value).font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(warn ? Theme.yellow : Theme.text)
-                Text(sub).font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
+                Text(sub).font(.system(size: 12)).foregroundStyle(Theme.textFaint)
             }
         }
     }
@@ -153,7 +153,7 @@ struct RunningAgents: View {
                 Divider().overlay(Theme.line)
             }
             if !recent.isEmpty {
-                Text("RECENTLY FINISHED").font(.system(size: 9.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.textFaint).padding(.top, 6)
+                Text("RECENTLY FINISHED").font(.system(size: 10.5, weight: .semibold)).tracking(0.5).foregroundStyle(Theme.textFaint).padding(.top, 6)
                 ForEach(recent) { a in Button { app.openAgent(a.id) } label: { AgentRow(agent: a, compact: true) }.buttonStyle(.plain).contextMenu { agentMenu(a) } }
             }
         }
@@ -179,7 +179,7 @@ struct ChangingProjects: View {
                     HStack(alignment: .top) {
                         Image(systemName: app.project(c.project)?.icon ?? "folder").frame(width: 18).foregroundStyle(Theme.textDim)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(app.project(c.project)?.name ?? c.project).font(.system(size: 13, weight: .medium))
+                            Text(app.project(c.project)?.name ?? c.project).font(.system(size: 14, weight: .medium))
                             Text(c.sample.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")).font(Theme.caption).foregroundStyle(Theme.textDim).lineLimit(1)
                         }
                         Spacer()
@@ -213,7 +213,7 @@ struct ScreenshotStrip: View {
                                         .frame(width: 200, height: 120).clipShape(RoundedRectangle(cornerRadius: 6))
                                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line))
                                     Text(s.name).font(Theme.caption).lineLimit(1).frame(width: 200, alignment: .leading)
-                                    Text("\(app.project(s.project)?.name ?? "—") · \(Fmt.ago(s.ts))").font(.system(size: 10)).foregroundStyle(Theme.textFaint)
+                                    Text("\(app.project(s.project)?.name ?? "—") · \(Fmt.ago(s.ts))").font(.system(size: 11.5)).foregroundStyle(Theme.textFaint)
                                 }
                             }.buttonStyle(.plain)
                         }
@@ -236,7 +236,7 @@ struct BuildsCard: View {
             ForEach(builds.prefix(6)) { b in
                 HStack(spacing: 8) {
                     StatusDot(status: b.status)
-                    Text(b.label).font(.system(size: 12.5)).lineLimit(1)
+                    Text(b.label).font(.system(size: 13.5)).lineLimit(1)
                     Text(app.project(b.project)?.name ?? b.project).font(Theme.caption).foregroundStyle(Theme.textFaint)
                     Spacer()
                     Text(b.status == "running" ? "running" : Fmt.ago(b.endedAt ?? b.startedAt)).font(Theme.caption).foregroundStyle(Theme.textFaint)

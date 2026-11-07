@@ -43,6 +43,7 @@ targets:
         SUPPORTS_MACCATALYST: NO
         ENABLE_PREVIEWS: YES
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MusaControl/MusaControl.entitlements
   MusaControlTests:
     type: bundle.unit-test
     platform: iOS

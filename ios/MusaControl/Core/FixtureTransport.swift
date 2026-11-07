@@ -29,6 +29,7 @@ struct FixtureTransport: GatewayTransport {
         ("GET", "^/api/vnc/displays$", "displays.json"),
         ("GET", "^/api/tmux$", "tmux.json"),
         ("GET", "^/api/devices$", "devices.json"),
+        ("GET", "^/api/push$", "push.json"),
         ("GET", "^/api/trash$", "empty-array.json"),
         ("GET", "^/api/github/[^/]+/[^/]+/runs$", "runs.json"),
         ("GET", "^/api/github/[^/]+/[^/]+/pulls$", "empty-array.json"),
@@ -42,6 +43,8 @@ struct FixtureTransport: GatewayTransport {
         func reply(_ data: Data, _ status: Int = 200, type: String = "application/json") -> (Data, HTTPURLResponse) {
             (data, HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": type])!)
         }
+        if method == "GET", path.range(of: "^/api/projects/[^/]+/(thumb|raw)$", options: .regularExpression) != nil,
+           let u = Bundle.main.url(forResource: "shot-1", withExtension: "jpg", subdirectory: "Fixtures"), let d = try? Data(contentsOf: u) { return reply(d, type: "image/jpeg") }
         if method == "GET", path.range(of: "^/api/screenshots/\\d+/image$", options: .regularExpression) != nil {
             let id = path.split(separator: "/")[2]
             let n = (Int(id) ?? 0) % 4

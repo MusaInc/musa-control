@@ -12,15 +12,16 @@ enum SyntaxHighlighter {
         let hashComment: Bool
     }
 
+    // Light and dark variants; the dark set is the original palette.
     static let palette: [String: UIColor] = [
-        "kw": UIColor(red: 0.776, green: 0.580, blue: 0.996, alpha: 1),
-        "str": UIColor(red: 0.596, green: 0.851, blue: 0.592, alpha: 1),
-        "num": UIColor(red: 0.980, green: 0.733, blue: 0.459, alpha: 1),
-        "com": UIColor(red: 0.447, green: 0.471, blue: 0.518, alpha: 1),
-        "type": UIColor(red: 0.459, green: 0.765, blue: 0.996, alpha: 1),
-        "fn": UIColor(red: 0.988, green: 0.835, blue: 0.561, alpha: 1),
-        "tag": UIColor(red: 0.973, green: 0.541, blue: 0.541, alpha: 1),
-        "plain": UIColor(red: 0.886, green: 0.894, blue: 0.910, alpha: 1),
+        "kw": Theme.uiDyn((0.522, 0.243, 0.792), (0.776, 0.580, 0.996)),
+        "str": Theme.uiDyn((0.169, 0.494, 0.200), (0.596, 0.851, 0.592)),
+        "num": Theme.uiDyn((0.706, 0.369, 0.039), (0.980, 0.733, 0.459)),
+        "com": Theme.uiDyn((0.478, 0.486, 0.514), (0.494, 0.518, 0.565)),
+        "type": Theme.uiDyn((0.090, 0.396, 0.710), (0.459, 0.765, 0.996)),
+        "fn": Theme.uiDyn((0.580, 0.384, 0.0), (0.988, 0.835, 0.561)),
+        "tag": Theme.uiDyn((0.725, 0.196, 0.196), (0.973, 0.541, 0.541)),
+        "plain": Theme.uiDyn((0.114, 0.114, 0.122), (0.886, 0.894, 0.910)),
     ]
 
     static let common = Set<String>(["if", "else", "for", "while", "return", "break", "continue", "switch", "case", "default", "in", "true", "false", "null", "nil", "None", "True", "False", "do", "try", "catch", "throw", "throws", "import", "from", "as", "class", "struct", "enum", "func", "function", "def", "let", "var", "const", "static", "public", "private", "protected", "extends", "super", "self", "this", "new", "async", "await", "export", "yield", "and", "or", "not", "is", "with", "pass", "lambda", "elif", "guard", "where", "protocol", "extension", "interface", "type", "val", "fun", "object", "override", "signal", "extends", "onready", "match", "await", "typeof", "instanceof", "void", "uniform", "varying", "shader_type", "render_mode", "in", "out", "inout", "package", "init", "deinit", "some", "any", "mutating", "final", "lazy", "weak", "of", "delete", "finally", "raise", "global", "nonlocal", "assert", "fn", "impl", "mod", "use", "pub", "mut", "then", "fi", "done", "esac", "local", "echo", "export"] as [String])

@@ -111,4 +111,45 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(WorkspaceLayoutStore.load("unit-test-project", portrait: false), l)
         XCTAssertNotEqual(WorkspaceLayoutStore.load("another-project", portrait: false), l)
     }
+
+    // MARK: Content-first activity feed
+
+    private func ev(_ id: Int, _ kind: String, _ title: String = "t", _ detail: [String: JSONValue] = [:]) -> TimelineEvent {
+        TimelineEvent(id: id, ts: Double(id) * 1000, kind: kind, project: "p", session: "s", title: title, detail: .object(detail), notify: 0)
+    }
+
+    func testFeedFoldsRoutineStepsAndKeepsResultsSeparate() {
+        let feed = Feed.build([
+            ev(1, "agent.prompt", "Do it", ["text": .string("Do it")]),
+            ev(2, "agent.command", "$ ls"), ev(3, "agent.command", "$ rg x"), ev(4, "agent.read", "Reading a.swift"),
+            ev(5, "agent.edit", "Edited a.swift", ["path": .string("/x/a.swift")]), ev(6, "agent.edit", "Edited b.swift", ["path": .string("/x/b.swift")]),
+            ev(7, "agent.command_failed", "Failed (1): make", ["exitCode": .number(1)]),
+            ev(8, "agent.test", "Running tests: npm test", ["exitCode": .number(0), "output": .string("12 passed")]),
+            ev(9, "agent.message", "Done"),
+        ])
+        XCTAssertEqual(feed.count, 6)
+        if case .steps(let s) = feed[1] { XCTAssertEqual(s.count, 3) } else { XCTFail("routine commands fold into one row") }
+        if case .edits(let e) = feed[2] { XCTAssertEqual(e.count, 2) } else { XCTFail("consecutive edits group") }
+        if case .single(let f) = feed[3] { XCTAssertEqual(f.kind, "agent.command_failed") } else { XCTFail("failures stand alone") }
+        if case .single(let t) = feed[4] { XCTAssertTrue(Feed.isTestResult(t)) } else { XCTFail("test results stand alone") }
+    }
+
+    func testAppInstructionAndTranscriptPromptAreOneMessage() {
+        let feed = Feed.build([
+            ev(1, "agent.instruction", "You: Fix the build", ["text": .string("Fix the build")]),
+            ev(2, "agent.prompt", "Fix the build", ["text": .string("Fix the build")]),
+        ])
+        XCTAssertEqual(feed.count, 1)
+    }
+
+    func testMessageSegmentsSplitFencedCode() {
+        let segs = MessageText.segments("Intro\n```swift\nlet a = 1\n```\nOutro")
+        XCTAssertEqual(segs.count, 3)
+        if case .code(let lang, let code) = segs[1] { XCTAssertEqual(lang, "swift"); XCTAssertEqual(code, "let a = 1") } else { XCTFail("code block") }
+    }
+
+    func testTestSummaryQuotesOnlyRealOutput() {
+        XCTAssertEqual(Feed.testSummary("noise\n44 passed, 1 failed"), "44 passed, 1 failed")
+        XCTAssertNil(Feed.testSummary("compiling...\ndone"), "no invented counts")
+    }
 }

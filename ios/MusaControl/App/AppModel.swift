@@ -58,6 +58,13 @@ final class AppModel {
     var launcherProject: String?
     var showSwitcher = false
     var pendingTerminalAttach: String?         // tmux session to open in Terminal
+    /// Full sidebar vs icon rail on wide windows. The rail is always visible,
+    /// so collapsing can never strand navigation, whatever was saved.
+    var sidebarExpanded: Bool = UserDefaults.standard.object(forKey: "sidebar.expanded") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(sidebarExpanded, forKey: "sidebar.expanded") }
+    }
+    var sidebarOverlay = false                 // narrow windows: full sidebar over the content (not saved)
+    var focusApproval = false                  // opened from an approval notification
 
     // Follow Agent
     var followAgent: String?                   // agent id, nil = any agent in context
@@ -122,6 +129,7 @@ final class AppModel {
             await refreshAll()
             startStream()
             startRefreshLoop()
+            if !fixtures { Task { await Notifier.shared.syncRegistration() } }
         } catch let e as GatewayError where e.isAuth {
             unpair()
         } catch {

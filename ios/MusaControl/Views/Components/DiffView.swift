@@ -22,7 +22,7 @@ struct DiffView: View {
                                 }
                             } header: {
                                 HStack(spacing: 8) {
-                                    Image(systemName: collapsed.contains(f.id) ? "chevron.right" : "chevron.down").font(.system(size: 10, weight: .semibold))
+                                    Image(systemName: collapsed.contains(f.id) ? "chevron.right" : "chevron.down").font(.system(size: 11.5, weight: .semibold))
                                     Text(f.path).font(Theme.monoSmall).lineLimit(1).truncationMode(.middle)
                                     Spacer()
                                     Text("+\(f.added)").font(Theme.monoSmall).foregroundStyle(Theme.green)

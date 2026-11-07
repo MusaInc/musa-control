@@ -82,8 +82,8 @@ struct WorkspacesView: View {
                         ForEach(recent, id: \.self) { id in
                             if let p = app.project(id) {
                                 HStack(spacing: 6) {
-                                    Image(systemName: p.icon).font(.system(size: 11))
-                                    Text(p.name).font(.system(size: 12.5, weight: app.workspaceProject == id ? .semibold : .regular)).lineLimit(1)
+                                    Image(systemName: p.icon).font(.system(size: 12))
+                                    Text(p.name).font(.system(size: 13.5, weight: app.workspaceProject == id ? .semibold : .regular)).lineLimit(1)
                                     if (p.activeAgents ?? 0) > 0 { StatusDot(status: "working", size: 6) }
                                     Button { recent.removeAll { $0 == id }; save(); if app.workspaceProject == id { app.workspaceProject = recent.first } } label: { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 16, height: 16) }.buttonStyle(.plain).foregroundStyle(Theme.textFaint)
                                 }
@@ -100,7 +100,8 @@ struct WorkspacesView: View {
                 } label: { Image(systemName: "plus").frame(width: 32, height: 32) }
                 .accessibilityIdentifier("workspace.open")
             }
-            .padding(.trailing, 6).background(Theme.raised)
+            .padding(.trailing, 6).background(Theme.bg)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
             if let id = app.workspaceProject, app.project(id) != nil {
                 WorkspaceView(projectId: id).id(id)
             } else {
@@ -130,8 +131,8 @@ struct ProjectGrid: View {
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: p.icon).font(.system(size: 15)).frame(width: 32, height: 32).background(Theme.hover, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.accent)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(p.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
-                                    Text(p.path.replacingOccurrences(of: "/home/dev", with: "~")).font(.system(size: 10.5)).foregroundStyle(Theme.textFaint).lineLimit(1).truncationMode(.middle)
+                                    Text(p.name).font(.system(size: 14.5, weight: .semibold)).lineLimit(1)
+                                    Text(p.path.replacingOccurrences(of: "/home/dev", with: "~")).font(.system(size: 12)).foregroundStyle(Theme.textFaint).lineLimit(1).truncationMode(.middle)
                                     HStack(spacing: 6) {
                                         Pill(text: p.kind)
                                         if p.github != nil { Pill(text: "GitHub", color: Theme.blue) }
@@ -168,7 +169,7 @@ struct WorkspaceView: View {
                     if let m = layout.maximized, let loc = layout.locate(m) {
                         panel(layout.columns[loc.0].panels[loc.1], column: loc.0, row: loc.1)
                     } else {
-                        columns(size: CGSize(width: geo.size.width, height: geo.size.height - 36))
+                        columns(size: CGSize(width: geo.size.width, height: geo.size.height - 44))
                     }
                 }
             }
@@ -182,7 +183,7 @@ struct WorkspaceView: View {
     var toolbar: some View {
         HStack(spacing: 8) {
             if let p = app.project(projectId) {
-                Text(p.name).font(.system(size: 13, weight: .semibold))
+                Text(p.name).font(.system(size: 14, weight: .semibold))
                 Text(p.path.replacingOccurrences(of: "/home/dev", with: "~")).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             }
             Spacer()
@@ -194,7 +195,8 @@ struct WorkspaceView: View {
             } label: { Label("Panel", systemImage: "rectangle.badge.plus").font(Theme.label) }
             .accessibilityIdentifier("workspace.addPanel")
         }
-        .padding(.horizontal, 12).frame(height: 36).background(Theme.surface)
+        .padding(.horizontal, 14).frame(height: 44).background(Theme.surface)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 
     func columns(size: CGSize) -> some View {
@@ -210,7 +212,7 @@ struct WorkspaceView: View {
                         if r < col.panels.count - 1 { RowDivider { dy in resizeRow(c, r, dy / max(rowUsable, 1)) } }
                     }
                 }
-                .frame(width: max(160, w))
+                .frame(width: max(220, w))
                 if c < layout.columns.count - 1 { ColumnDivider { dx in resizeColumn(c, dx / max(usable, 1)) } }
             }
         }
@@ -223,8 +225,8 @@ struct WorkspaceView: View {
                     ForEach(PanelKind.allCases) { k in Button { replace(slot.id, with: k) } label: { Label(k.title, systemImage: k.icon) } }
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: slot.kind.icon).font(.system(size: 10.5, weight: .semibold))
-                        Text(slot.kind.title).font(.system(size: 11.5, weight: .semibold))
+                        Image(systemName: slot.kind.icon).font(.system(size: 12, weight: .semibold))
+                        Text(slot.kind.title).font(.system(size: 12.5, weight: .semibold))
                         Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundStyle(Theme.textFaint)
                     }.foregroundStyle(Theme.textDim)
                 }
@@ -235,13 +237,14 @@ struct WorkspaceView: View {
                     Button { move(slot.id, dc: 0, dr: -1) } label: { Label("Move up", systemImage: "arrow.up") }.disabled(r == 0)
                     Button { move(slot.id, dc: 0, dr: 1) } label: { Label("Move down", systemImage: "arrow.down") }.disabled(r == layout.columns[c].panels.count - 1)
                     Button { split(slot.id) } label: { Label("Split below", systemImage: "rectangle.split.1x2") }
-                } label: { Image(systemName: "rectangle.3.group").font(.system(size: 11)).frame(width: 26, height: 26) }
+                } label: { Image(systemName: "rectangle.3.group").font(.system(size: 12)).frame(width: 26, height: 26) }
                 IconButton(systemName: layout.maximized == slot.id ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right", help: layout.maximized == slot.id ? "Restore" : "Maximise") {
                     withAnimation(.easeInOut(duration: 0.2)) { layout.maximized = layout.maximized == slot.id ? nil : slot.id }
                 }
                 IconButton(systemName: "xmark", help: "Close panel") { close(slot.id) }
             }
-            .padding(.leading, 8).frame(height: 28).background(Theme.raised)
+            .padding(.leading, 10).frame(height: 34).background(Theme.surface)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
             PanelContent(slot: slot, projectId: projectId, setConfig: { k, v in setConfig(slot.id, k, v) })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
@@ -380,14 +383,15 @@ struct WorkspaceTerminal: View {
     @Environment(TerminalStore.self) private var terminals
     @State private var session: TerminalSession?
     var body: some View {
-        Group { if let session { TerminalPane(session: session) } else { Color.clear } }
+        Group { if let session { TerminalPane(session: session) } else { Color(Theme.terminalBg) } }
             .onAppear {
-                if let s = terminals.sessions.first(where: { $0.tmuxName == name }) { session = s }
-                else {
-                    let s = TerminalSession(tmuxName: name, title: app.project(projectId)?.name, directory: app.project(projectId)?.path, fontSize: terminals.fontSize)
-                    terminals.sessions.append(s); terminals.persist(); session = s
-                }
+                session = terminals.panelSession(name, title: app.project(projectId)?.name, directory: app.project(projectId)?.path)
                 persist(name)
+            }
+            .onDisappear {
+                // Let SwiftUI finish removing the view before checking it's really gone.
+                let store = terminals
+                Task { @MainActor in try? await Task.sleep(nanoseconds: 1_000_000_000); store.releasePanel(name) }
             }
     }
 }
@@ -408,12 +412,12 @@ struct WorkspaceAgentsPanel: View {
                 HStack(spacing: 4) {
                     ForEach(agents) { a in
                         Button { select(a.id) } label: {
-                            HStack(spacing: 5) { StatusDot(status: a.status, size: 6); Text(a.title).font(.system(size: 11.5)).lineLimit(1).frame(maxWidth: 160) }
+                            HStack(spacing: 5) { StatusDot(status: a.status, size: 6); Text(a.title).font(.system(size: 12.5)).lineLimit(1).frame(maxWidth: 160) }
                                 .padding(.horizontal, 8).frame(height: 26)
                                 .background(current?.id == a.id ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 6))
                         }.buttonStyle(.plain)
                     }
-                    Button { app.launcherProject = projectId; app.showLauncher = true } label: { Label("New", systemImage: "plus").font(.system(size: 11.5)).padding(.horizontal, 8).frame(height: 26) }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+                    Button { app.launcherProject = projectId; app.showLauncher = true } label: { Label("New", systemImage: "plus").font(.system(size: 12.5)).padding(.horizontal, 8).frame(height: 26) }.buttonStyle(.plain).foregroundStyle(Theme.accent)
                 }.padding(4)
             }
             .background(Theme.bg)
@@ -458,7 +462,7 @@ struct ProjectTimeline: View {
                         ForEach(filters, id: \.0) { f in
                             let on = Set(f.2).isSubset(of: kinds)
                             Button { if on { kinds.subtract(f.2) } else { kinds.formUnion(f.2) } } label: {
-                                Label(f.0, systemImage: f.1).font(.system(size: 11)).padding(.horizontal, 8).frame(height: 24)
+                                Label(f.0, systemImage: f.1).font(.system(size: 12)).padding(.horizontal, 8).frame(height: 24)
                                     .background(on ? Theme.accent.opacity(0.2) : Theme.hover, in: Capsule())
                             }.buttonStyle(.plain)
                         }
