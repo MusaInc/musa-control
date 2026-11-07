@@ -13,7 +13,7 @@ struct DiffLine: Hashable, Identifiable {
 struct DiffFile: Hashable, Identifiable {
     var id: String { path + "#\(index)" }
     let index: Int
-    let path: String
+    var path: String
     var lines: [DiffLine]
     var added: Int
     var removed: Int
