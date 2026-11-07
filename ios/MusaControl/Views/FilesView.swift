@@ -217,7 +217,7 @@ struct FileViewerPanel: View {
     @State private var mode = "edit"
     @State private var revisions: [Revision] = []
     @State private var diff: String?
-    @State private var conflict: SaveResult?
+    @State private var conflict: ConflictBox?
     @State private var status: String?
     @State private var changedOnServer = false
     @State private var follow = true
@@ -257,7 +257,7 @@ struct FileViewerPanel: View {
                 if !dirty && follow { await load(keepMode: true) } else { changedOnServer = true }
             }
         }
-        .sheet(item: Binding(get: { conflict.map { ConflictBox(result: $0) } }, set: { if $0 == nil { conflict = nil } })) { box in
+        .sheet(item: $conflict) { box in
             ConflictSheet(mine: text, theirs: box.result.currentText ?? "", path: path ?? "") { choice in
                 switch choice {
                 case .keepMine: baseSha = box.result.currentSha; conflict = nil; Task { await save(force: false) }
@@ -336,7 +336,7 @@ struct FileViewerPanel: View {
             baseSha = r.sha; content = FileContent(path: path, size: Double(text.utf8.count), mtime: Date().timeIntervalSince1970 * 1000, mime: content?.mime ?? "text/plain", text: text, binary: false, sha: r.sha, tooLarge: false)
             changedOnServer = false; status = "Saved"
         } catch let e as GatewayError where e.isConflict {
-            conflict = e.decode(SaveResult.self)
+            conflict = e.decode(SaveResult.self).map { ConflictBox(result: $0) }
         } catch { status = error.localizedDescription }
     }
 

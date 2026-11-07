@@ -360,8 +360,8 @@ struct PreviewPanel: View {
         guard let s = sources else { return [] }
         var out: [Source] = []
         for l in s.local { if let u = URL(string: "mcpreview://\(l.port)/") { out.append(Source(id: "local-\(l.port)", label: "\(l.process ?? "server") :\(l.port)", url: u, kind: "Dev server") ) } }
-        for p in s.public { if let u = URL(string: p.url) { out.append(Source(id: p.url, label: p.label, url: u, kind: "Public")) } }
-        for st in s.static { if let u = URL(string: st.url) { out.append(Source(id: st.url, label: st.label, url: u, kind: "Static build")) } }
+        for p in s.`public` { if let u = URL(string: p.url) { out.append(Source(id: p.url, label: p.label, url: u, kind: "Public")) } }
+        for st in s.`static` { if let u = URL(string: st.url) { out.append(Source(id: st.url, label: st.label, url: u, kind: "Static build")) } }
         return out
     }
     var current: Source? { all.first { $0.id == selected } ?? all.first }

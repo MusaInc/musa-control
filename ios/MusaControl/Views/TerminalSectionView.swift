@@ -150,7 +150,7 @@ struct TerminalSectionView: View {
                 ForEach(app.projects.prefix(30)) { p in Button { store.newShell(directory: p.path, label: p.name) } label: { Label(p.name, systemImage: p.icon) } }
             }
         } label: { Label("Attach", systemImage: "link").font(Theme.label).padding(.horizontal, 8).frame(height: 30) }
-        .onTapGesture { Task { tmuxSessions = (try? await app.client.get("/api/tmux", as: TmuxList.self).sessions) ?? [] } }
+        .task(id: store.sessions.count) { tmuxSessions = (try? await app.client.get("/api/tmux", as: TmuxList.self).sessions) ?? [] }
     }
 
     /// Touch-friendly keys beyond SwiftTerm's own accessory bar.

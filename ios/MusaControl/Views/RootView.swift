@@ -137,7 +137,7 @@ struct SidebarRow: View {
 struct ConnectionDot: View {
     @Environment(AppModel.self) private var app
     var body: some View {
-        let (status, label): (String, String) = {
+        let info: (status: String, label: String) = {
             switch (app.phase, app.streamState) {
             case (.ready, .live): return ("idle", "Live")
             case (.ready, .retrying), (.connecting, _): return ("approval", "Reconnecting")
@@ -145,7 +145,7 @@ struct ConnectionDot: View {
             default: return ("other", "Connecting")
             }
         }()
-        StatusDot(status: status, size: 7).help(label).accessibilityLabel(Text(label))
+        StatusDot(status: info.status, size: 7).help(info.label).accessibilityLabel(Text(info.label))
     }
 }
 
