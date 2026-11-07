@@ -1,0 +1,1 @@
+{"diff": "diff --git a/src/camera/swing_camera.gd b/src/camera/swing_camera.gd\n--- a/src/camera/swing_camera.gd\n+++ b/src/camera/swing_camera.gd\n@@ -1,4 +1,5 @@\n extends Camera3D\n \n-var follow_rate := 6.0\n+var follow_rate := 4.5\n+var release_ease := 0.35\n \n"}

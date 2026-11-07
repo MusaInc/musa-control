@@ -19,7 +19,7 @@ export function createGithub(events) {
     return value;
   }
 
-  const RUN_FIELDS = "databaseId,displayTitle,status,conclusion,workflowName,headBranch,headSha,event,createdAt,updatedAt,url,number,attempt";
+  const RUN_FIELDS = "databaseId,displayTitle,status,conclusion,workflowName,headBranch,headSha,event,createdAt,updatedAt,url,number";
   const runs = (repo, limit = 20) => gh(["run", "list", "-R", check(repo), "-L", String(limit), "--json", RUN_FIELDS]);
   const runDetail = (repo, id) => gh(["run", "view", String(+id), "-R", check(repo), "--json", RUN_FIELDS + ",jobs"], { ttl: 5000 });
   async function runLog(repo, id, { failedOnly = true } = {}) {
@@ -62,7 +62,7 @@ export function createGithub(events) {
       let list;
       try { list = await runs(repo, 10); } catch { continue; }
       for (const r of list) {
-        const k = `${repo}#${r.databaseId}#${r.attempt}`, prev = known.get(k);
+        const k = `${repo}#${r.databaseId}`, prev = known.get(k);
         if (prev && prev !== "completed" && r.status === "completed") {
           events.emit({ kind: "ci.finished", title: `${r.workflowName} ${r.conclusion} on ${repo.split("/")[1]} (${r.headBranch})`,
             detail: { repo, run: r.databaseId, conclusion: r.conclusion, url: r.url, follow: { view: "ci", repo, run: r.databaseId } }, notify: true, dedupe: `ci:${k}:done` });

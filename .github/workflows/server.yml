@@ -1,0 +1,19 @@
+name: Gateway
+on:
+  push:
+    branches: [main]
+    paths: ["server/**", ".github/workflows/server.yml"]
+  pull_request:
+    paths: ["server/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: server } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux ffmpeg ripgrep openssh-client >/dev/null
+      - run: npm ci || npm install
+      - run: git config --global user.email ci@example.com && git config --global user.name CI
+      - run: npm test

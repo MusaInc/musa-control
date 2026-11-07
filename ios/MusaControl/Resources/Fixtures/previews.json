@@ -1,0 +1,1 @@
+{"public":[{"label":"Web build","url":"https://musastudios.co.uk/cityswing/"}],"local":[{"port":8711,"process":"python3","pid":2640003,"cwd":"/home/dev/workspace/projects/CitySwing/build/web (deleted)","label":"python3 :8711"}],"static":[{"label":"build/web","path":"build/web/index.html","url":"https://musastudios.co.uk/control/static/cityswing/build/web/index.html"}]}

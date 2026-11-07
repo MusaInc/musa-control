@@ -1,0 +1,76 @@
+name: MusaControl
+options:
+  bundleIdPrefix: uk.co.musastudios
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: "1.2.0"
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel
+    from: "0.7.0"
+targets:
+  MusaControl:
+    type: application
+    platform: iOS
+    sources:
+      - path: MusaControl
+        excludes:
+          - "Resources/Fixtures/**"
+      - path: MusaControl/Resources/Fixtures
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: SwiftTerm
+      - package: Citadel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: uk.co.musastudios.musacontrol
+        PRODUCT_NAME: MusaControl
+        TARGETED_DEVICE_FAMILY: "2"
+        INFOPLIST_FILE: MusaControl/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SUPPORTS_MACCATALYST: NO
+        ENABLE_PREVIEWS: YES
+        CODE_SIGN_STYLE: Automatic
+  MusaControlTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [MusaControlTests]
+    dependencies:
+      - target: MusaControl
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "2"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/MusaControl.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MusaControl"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+  MusaControlUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [MusaControlUITests]
+    dependencies:
+      - target: MusaControl
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "2"
+        TEST_TARGET_NAME: MusaControl
+schemes:
+  MusaControl:
+    build:
+      targets:
+        MusaControl: all
+        MusaControlTests: [test]
+        MusaControlUITests: [test]
+    test:
+      targets: [MusaControlTests, MusaControlUITests]

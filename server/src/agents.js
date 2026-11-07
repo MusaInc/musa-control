@@ -80,11 +80,12 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
   async function tail(f) {
     let rec = files.get(f.file);
     if (!rec) {
-      // Start near the end for transcripts we've never read: history before the
-      // gateway existed stays in the agent's own files.
-      const known = offsets[f.file];
-      const start = known !== undefined && known <= f.size ? known : Math.max(0, f.size - 384 * 1024);
-      rec = { offset: start, state: {}, agent: f.agent, primed: known !== undefined, aligned: start === 0 || known !== undefined };
+      // First sight in this process: re-read the recent tail so the session's
+      // state (title, last prompt, turn) is rebuilt after a gateway restart.
+      // Events already recorded are skipped by their unique dedupe keys, and
+      // nothing from this catch-up read triggers notifications.
+      const start = Math.max(0, f.size - 384 * 1024);
+      rec = { offset: start, state: {}, agent: f.agent, primed: false, aligned: start === 0 };
       files.set(f.file, rec);
       // Read the first line(s) for session metadata (cwd, id) when skipping ahead.
       if (start > 0) {
@@ -134,7 +135,8 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
 
   function absorb(s, st, f) {
     s.cwd = st.cwd || s.cwd;
-    if (s.cwd && !s.project) s.project = projects.forPath(s.cwd)?.id || null;
+    if (s.cwd && !s.cwdProject) s.cwdProject = projects.forPath(s.cwd)?.id || null;
+    s.project = s.cwdProject || s.project || null;
     s.title = st.title || s.title;
     s.lastPrompt = st.lastPrompt || s.lastPrompt;
     s.lastMessage = st.lastMessage || s.lastMessage;
@@ -145,7 +147,15 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
 
   function record(s, ev, { quiet }) {
     // Resolve the project of the thing touched (edits outside the session cwd).
-    const p = ev.detail?.path ? projects.forPath(ev.detail.path) : null;
+    const p = ev.detail?.path ? projects.forPath(ev.detail.path) : ev.detail?.cwd ? projects.forPath(ev.detail.cwd) : null;
+    // Sessions started from ~ belong to the project they actually work in:
+    // the one their edits and commands touch most.
+    if (p && !s.cwdProject) {
+      s.touched = s.touched || {};
+      s.touched[p.id] = (s.touched[p.id] || 0) + (ev.kind === "agent.edit" ? 3 : 1);
+      s.project = Object.entries(s.touched).sort((a, b) => b[1] - a[1])[0][0];
+      s.projectInferred = true;
+    }
     const project = p?.id || s.project;
     if (ev.kind === "agent.edit") {
       s.counts.edits++;
@@ -279,7 +289,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
   function view(s) {
     const st = statusOf(s);
     return {
-      id: s.key, agent: s.agent, agentName: agentName(s.agent), sessionId: s.sessionId, project: s.project, cwd: s.cwd, title: s.title || (s.cwd ? path.basename(s.cwd) : "Session"),
+      id: s.key, agent: s.agent, agentName: agentName(s.agent), sessionId: s.sessionId, project: s.project, projectInferred: Boolean(s.projectInferred && !s.cwdProject), cwd: s.cwd, title: s.title || (s.cwd ? path.basename(s.cwd) : "Session"),
       lastPrompt: s.lastPrompt?.slice(0, 600) || null, lastMessage: s.lastMessage?.slice(0, 600) || null, status: st.status, statusText: st.text,
       lastActivity: s.lastActivity, startedAt: s.startedAt || null, model: s.model || null, pid: s.pid || null, mode: s.mode || null,
       tmux: s.tmux ? { session: s.tmux.session, target: s.tmux.target } : null, managed: s.managed || null, controllable: Boolean(s.tmux),

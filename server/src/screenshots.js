@@ -24,7 +24,8 @@ export function createScreenshots(cfg, db, projects, events) {
     if (!full || !isImage(full)) return null;
     const real = await fsp.realpath(full).catch(() => null);
     if (!real || !allowedRoots.some((r) => real.startsWith(r + "/"))) return null;
-    if (projects.isSecret(real) || /\/(\.cache|thumbs|node_modules|\.git)\//.test(real) || real.startsWith(cfg.dataDir)) return null;
+    const capture = real.startsWith(path.join(cfg.dataDir, "captures") + "/");
+    if (projects.isSecret(real) || /\/(\.cache|thumbs|node_modules|\.git)\//.test(real) || (real.startsWith(cfg.dataDir) && !capture)) return null;
     const st = await fsp.stat(real).catch(() => null);
     if (!st || !st.isFile() || st.size < 2000 || st.size > 60 * 1024 * 1024) return null;
     const proj = project || projects.forPath(real)?.id || null;

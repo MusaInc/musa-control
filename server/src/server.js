@@ -268,6 +268,20 @@ export function createServer(overrides = {}) {
     if (w) await sendFile(req, res, await files.thumbnail(s.path, Math.min(w, 1600)), { mime: "image/jpeg", cache: "private, max-age=3600" });
     else await sendFile(req, res, s.path, { cache: "private, max-age=300" });
   }, { cookie: true });
+  // Captures taken in the app (preview snapshots) are stored by the gateway,
+  // not written into the project tree.
+  route("POST", "/api/screenshots", async ({ q, req }) => {
+    const project = projects.get(q.get("project")).id;
+    const name = String(q.get("name") || "capture.png").replace(/[^\w.-]+/g, "_").slice(-80);
+    if (!/\.(png|jpe?g)$/i.test(name)) throw Object.assign(new Error("PNG or JPEG only"), { status: 400 });
+    const dir = path.join(cfg.dataDir, "captures", project);
+    await fsp.mkdir(dir, { recursive: true });
+    const full = path.join(dir, `${Date.now()}-${name}`);
+    await fsp.writeFile(full, await readBody(req, 40 * 1024 * 1024));
+    const row = await screenshots.consider(full, { project, source: "preview" });
+    if (!row) throw Object.assign(new Error("Image was too small or unreadable"), { status: 422 });
+    return row;
+  }, { raw: true });
   route("POST", "/api/screenshots/:id/note", ({ params, body }) => screenshots.annotate(params.id, body.note));
   route("POST", "/api/screenshots/:id/send", async ({ params, body }) => {
     const s = screenshots.get(params.id);

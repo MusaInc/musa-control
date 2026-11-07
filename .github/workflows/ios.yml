@@ -1,0 +1,185 @@
+# Musa Control iPad app: build + test on every push (simulator), and a
+# manually-triggered TestFlight upload. There is no Mac on the VPS, so this
+# GitHub-hosted macOS runner is the only place the app is compiled.
+#
+# Repository secrets: APPLE_TEAM_ID, ASC_KEY_ID (Admin team key — App Manager
+# keys can't use cloud signing), ASC_ISSUER_ID, ASC_KEY_P8.
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml", "tools/asc.py"]
+  pull_request:
+    paths: ["ios/**"]
+  workflow_dispatch:
+    inputs:
+      testflight:
+        description: "Upload to TestFlight after the tests pass"
+        type: boolean
+        default: false
+      version:
+        description: "Marketing version (must be ≥ the highest on TestFlight)"
+        default: "0.1.0"
+      ui_tests:
+        description: "Run the UI tests (screenshots of every section)"
+        type: boolean
+        default: true
+      runner:
+        description: "macOS runner image (macos-15-intel if arm64 capacity is short)"
+        default: "macos-15"
+
+concurrency:
+  group: ios-${{ github.ref }}-${{ inputs.testflight || 'ci' }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -eo pipefail {0}
+    working-directory: ios
+
+env:
+  BUNDLE_ID: uk.co.musastudios.musacontrol
+
+jobs:
+  build-test:
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
+      - name: Generate the Xcode project
+        run: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+          xcodebuild -resolvePackageDependencies -project MusaControl.xcodeproj -scheme MusaControl | tail -5
+
+      - name: Pick an iPad simulator
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d = json.load(sys.stdin)["devices"]
+          c = [(r, x) for r, xs in d.items() if "iOS" in r for x in xs if "iPad Pro 13" in x["name"]] or \
+              [(r, x) for r, xs in d.items() if "iOS" in r for x in xs if "iPad" in x["name"]]
+          c.sort(key=lambda t: t[0])
+          print(c[-1][1]["udid"])')
+          echo "SIM=$udid" >> $GITHUB_ENV
+          xcrun simctl list devices | grep "$udid"
+
+      - name: Build and run unit tests
+        run: |
+          mkdir -p build
+          xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl \
+            -destination "id=$SIM" -only-testing:MusaControlTests \
+            -resultBundlePath build/unit.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/unit.log \
+            | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 500'
+
+      - name: UI tests (screenshots of every section, landscape + portrait)
+        if: inputs.ui_tests != false
+        continue-on-error: true
+        run: |
+          xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl \
+            -destination "id=$SIM" -only-testing:MusaControlUITests \
+            -resultBundlePath build/ui.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/ui.log \
+            | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 300'
+
+      - name: Export screenshots
+        if: always()
+        run: |
+          mkdir -p build/screens
+          for r in build/*.xcresult; do
+            xcrun xcresulttool export attachments --path "$r" --output-path build/screens/$(basename "$r" .xcresult) 2>/dev/null || true
+          done
+          find build/screens -type f | head -80
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens-${{ github.run_number }}
+          path: |
+            ios/build/screens
+            ios/build/*.log
+          retention-days: 14
+
+  testflight:
+    needs: build-test
+    if: github.event_name == 'workflow_dispatch' && inputs.testflight
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$xcode/Contents/Developer"
+
+      - name: App Store Connect key
+        env:
+          P8: ${{ secrets.ASC_KEY_P8 }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "$P8" > "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
+          python3 -m pip install --quiet --break-system-packages pyjwt cryptography
+
+      - name: Check the app record and version
+        env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
+        run: |
+          python3 ../tools/asc.py check-app "$BUNDLE_ID"
+          python3 ../tools/asc.py min-version "$BUNDLE_ID" "${{ inputs.version }}"
+
+      - name: Generate the Xcode project
+        run: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          sed -i '' "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"${{ inputs.version }}\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"${{ github.run_number }}\"/" project.yml
+          xcodegen generate
+
+      - name: Archive (unsigned; the export step signs with the cloud-managed certificate)
+        env: { TEAM: "${{ secrets.APPLE_TEAM_ID }}" }
+        run: |
+          xcodebuild -project MusaControl.xcodeproj -scheme MusaControl -configuration Release \
+            -destination "generic/platform=iOS" -archivePath build/MusaControl.xcarchive archive \
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" PROVISIONING_PROFILE_SPECIFIER="" | tail -40
+
+      - name: Sign and upload to TestFlight
+        env: { TEAM: "${{ secrets.APPLE_TEAM_ID }}", KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
+        run: |
+          cat > ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/MusaControl.xcarchive \
+            -exportOptionsPlist ExportOptions.plist -exportPath build/upload \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/private_keys/AuthKey_${KEY_ID}.p8" \
+            -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER" | tail -40
+          echo "Uploaded ${{ inputs.version }} (${{ github.run_number }})"
+
+      - name: Wait for Apple processing
+        timeout-minutes: 45
+        env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
+        run: python3 ../tools/asc.py wait "$BUNDLE_ID" "${{ github.run_number }}"
+
+      - name: Make it testable (compliance + internal testers)
+        env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
+        run: python3 ../tools/asc.py testable "$BUNDLE_ID" "${{ github.run_number }}"
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf "$HOME/private_keys"
