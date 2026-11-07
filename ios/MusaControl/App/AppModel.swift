@@ -71,9 +71,10 @@ final class AppModel {
         let args = ProcessInfo.processInfo.arguments
         fixtures = args.contains("-UITestFixtures")
         let stored = UserDefaults.standard.string(forKey: "serverURL") ?? "https://musastudios.co.uk/control"
-        serverURL = URL(string: stored) ?? URL(string: "https://musastudios.co.uk/control")!
+        let url = URL(string: stored) ?? URL(string: "https://musastudios.co.uk/control")!
+        serverURL = url
         let token = fixtures ? "fixture" : Keychain.string("deviceToken")
-        client = GatewayClient(base: serverURL, token: token, transport: fixtures ? FixtureTransport() : nil)
+        client = GatewayClient(base: url, token: token, transport: fixtures ? FixtureTransport() : nil)
         if let s = UserDefaults.standard.string(forKey: "section"), let sec = AppSection(rawValue: s) { section = sec }
         workspaceProject = UserDefaults.standard.string(forKey: "workspaceProject")
         if fixtures, let i = args.firstIndex(of: "-section"), i + 1 < args.count, let s = AppSection(rawValue: args[i + 1]) { section = s }
