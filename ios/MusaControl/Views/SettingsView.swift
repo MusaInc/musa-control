@@ -120,6 +120,7 @@ struct NotificationSettingsSections: View {
     @State private var prefs = Notifier.shared.prefs
     @State private var note: String?
     @State private var busy = false
+    @State private var checked = false
 
     var body: some View {
         SwiftUI.Section {
@@ -173,7 +174,7 @@ struct NotificationSettingsSections: View {
     }
     var deliveryDot: String { status?.serverConfigured == true && status?.registered == true ? "idle" : status?.serverConfigured == false ? "approval" : "other" }
     var deliveryText: String {
-        guard let s = status else { return "Checking…" }
+        guard let s = status else { return checked ? "Couldn't reach the gateway — pull to retry" : "Checking…" }
         if !s.serverConfigured { return "Push not set up on the server yet — notifications arrive while the app is open and on background refreshes" }
         if !s.registered { return permission == .authorized ? "Registering this iPad…" : "Allow notifications to receive push" }
         return "Instant push (\(s.environment == "sandbox" ? "development" : "production") APNs)"
@@ -199,6 +200,7 @@ struct NotificationSettingsSections: View {
         if permission == .authorized { _ = await Notifier.shared.syncRegistration() }
         status = try? await app.client.get("/api/push", as: PushStatus.self)
         if let p = status?.prefs, status?.registered == true { prefs = p; Notifier.shared.prefs = p }
-        Notifier.shared.pushActive = status?.serverConfigured == true && status?.registered == true
+        checked = true
+        if let status { Notifier.shared.pushActive = status.serverConfigured && status.registered }
     }
 }
