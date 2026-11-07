@@ -1,0 +1,16 @@
+{
+  "name": "musa-control-gateway",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Authenticated gateway between the Musa Control iPad app and the Musa Studios VPS",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "2.4.3",
+    "ws": "8.18.0"
+  }
+}

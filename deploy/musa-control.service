@@ -1,0 +1,21 @@
+[Unit]
+Description=Musa Control gateway (iPad workstation API; served at /control by Caddy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dev
+WorkingDirectory=/home/dev/musa-control/server
+Environment=HOME=/home/dev
+Environment=PATH=/home/dev/.nvm/versions/node/v20.20.2/bin:/home/dev/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/dev/.nvm/versions/node/v22.23.2/bin/node --no-warnings src/main.js
+Restart=on-failure
+RestartSec=3
+# Agents, builds and tmux sessions it starts must outlive gateway restarts.
+KillMode=process
+NoNewPrivileges=true
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Remote desktop</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0e0f11; overflow: hidden; touch-action: none; }
+  #screen { position: absolute; inset: 0; }
+  #screen > div { background: #0e0f11 !important; }
+  #msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #8a8f98;
+         font: 13px -apple-system, system-ui, sans-serif; text-align: center; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<div id="msg">Connecting…</div>
+<script type="module" src="web/vnc.js"></script>
+</body>
+</html>

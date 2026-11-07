@@ -1,0 +1,9 @@
+node_modules/
+*.p8
+*.mobileprovision
+.DS_Store
+ios/*.xcodeproj
+ios/build/
+ios/DerivedData/
+server/.data/
+xcuserdata/

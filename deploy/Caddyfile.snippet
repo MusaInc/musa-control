@@ -1,0 +1,12 @@
+		# Musa Control gateway (musa-control.service on 127.0.0.1:8160, ~/musa-control). Public like FireDev/Reso:
+		# every API, event stream and VNC socket needs a device token issued after the workspace password; VNC
+		# servers stay on loopback behind it.
+		handle_path /control/* {
+			header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+			request_body {
+				max_size 220MB
+			}
+			reverse_proxy 127.0.0.1:8160 {
+				flush_interval -1
+			}
+		}
