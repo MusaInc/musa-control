@@ -36,6 +36,7 @@ struct FilesSectionView: View {
         }
         .background(Theme.bg)
         .onAppear { if app.filesProject == nil { app.filesProject = app.workspaceProject ?? app.projects.first?.id } }
+        .onChange(of: app.projects.count) { _, _ in if app.filesProject == nil { app.filesProject = app.workspaceProject ?? app.projects.first?.id } }
     }
 }
 

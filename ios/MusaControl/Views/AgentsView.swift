@@ -90,20 +90,24 @@ struct AgentDetail: View {
                 Text(agent.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
                 HStack(spacing: 6) {
                     StatusDot(status: agent.status)
-                    Text(agent.statusText).lineLimit(1)
+                    Text(agent.statusText).lineLimit(1).truncationMode(.tail)
                     Text("·"); Text(agent.agentName)
                     if let m = agent.model { Text("·"); Text(m) }
                     if let p = app.project(agent.project) { Text("·"); Button(p.name) { app.openWorkspace(p.id) }.buttonStyle(.plain).foregroundStyle(Theme.accent) }
                 }
-                .font(Theme.caption).foregroundStyle(Theme.textDim)
+                .font(Theme.caption).foregroundStyle(Theme.textDim).lineLimit(1)
             }
-            Spacer()
+            .layoutPriority(1)
+            Spacer(minLength: 4)
             if let c = agent.counts {
-                HStack(spacing: 10) {
+                ViewThatFits {
+                    HStack(spacing: 10) {
                     Label("\(c.edits)", systemImage: "pencil.line"); Label("\(c.commands)", systemImage: "terminal"); Label("\(c.images)", systemImage: "photo")
                     if c.errors > 0 { Label("\(c.errors)", systemImage: "exclamationmark.triangle").foregroundStyle(Theme.red) }
                 }
-                .font(Theme.caption).foregroundStyle(Theme.textDim).labelStyle(.titleAndIcon)
+                    .font(Theme.caption).foregroundStyle(Theme.textDim).labelStyle(.titleAndIcon)
+                    EmptyView()
+                }
             }
             if agent.controllable {
                 IconButton(systemName: "stop.circle", help: "Interrupt (Esc)", tint: Theme.yellow) { act { _ = try await app.client.send("POST", "/api/agents/\(agent.id.pathSegment)/interrupt", [:], as: OK.self) } }
