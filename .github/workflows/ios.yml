@@ -81,7 +81,7 @@ jobs:
             | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 500'
 
       - name: UI tests (screenshots of every section, landscape + portrait)
-        if: inputs.ui_tests != false
+        if: github.event_name != 'workflow_dispatch' || inputs.ui_tests
         continue-on-error: true
         run: |
           xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation -skipMacroValidation \
