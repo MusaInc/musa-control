@@ -213,7 +213,7 @@ struct StudioStage: View {
                     if side {
                         VStack(spacing: 12) {
                             ThoughtCard(d: d, agent: agent).studioRegion(.thought, d)
-                            if !d.plan.isEmpty { PlanCard(steps: d.plan).transition(.move(edge: .trailing).combined(with: .opacity)) }
+                            if !d.plan.isEmpty { StudioPlanCard(steps: d.plan).transition(.move(edge: .trailing).combined(with: .opacity)) }
                             if !d.photos.isEmpty { PhotoStack(photos: d.photos).transition(.scale.combined(with: .opacity)) }
                         }
                         .frame(width: 272)
@@ -703,7 +703,7 @@ struct ThoughtCard: View {
     }
 }
 
-struct PlanCard: View {
+struct StudioPlanCard: View {
     let steps: [PlanStep]
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
