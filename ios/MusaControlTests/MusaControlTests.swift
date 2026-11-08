@@ -153,3 +153,58 @@ final class LayoutTests: XCTestCase {
         XCTAssertNil(Feed.testSummary("compiling...\ndone"), "no invented counts")
     }
 }
+
+/// The studio retypes the agent's real edits; replaying a script must land
+/// exactly on the file as it is now.
+final class StudioEditScriptTests: XCTestCase {
+    func apply(_ s: EditScript) -> [String] {
+        var doc = s.before
+        for o in s.ops {
+            let n = min(o.remove.count, doc.count - o.line)
+            doc.replaceSubrange(o.line..<(o.line + n), with: o.insert)
+        }
+        return doc + s.tail
+    }
+
+    func testClaudeSingleLineEdit() throws {
+        let current = "func a() {\n    let x = 2\n    print(x)\n}\n"
+        let s = try XCTUnwrap(EditScripts.replacements([(old: "let x = 1", new: "let x = 2")], current: current))
+        XCTAssertEqual(s.before[1], "    let x = 1")
+        XCTAssertEqual(s.ops, [EditOp(line: 1, remove: ["    let x = 1"], insert: ["    let x = 2"])])
+        XCTAssertEqual(apply(s), current.components(separatedBy: "\n"))
+    }
+
+    func testClaudeInsertionTrimsUnchangedLines() throws {
+        let current = "func a() {\n    let x = 2\n    print(x)\n    print(\"done\")\n}\n"
+        let s = try XCTUnwrap(EditScripts.replacements([(old: "print(x)\n}", new: "print(x)\n    print(\"done\")\n}")], current: current))
+        XCTAssertEqual(s.ops, [EditOp(line: 3, remove: [], insert: ["    print(\"done\")"])])
+        XCTAssertEqual(apply(s), current.components(separatedBy: "\n"))
+    }
+
+    func testClaudeEditOutsideProjectShowsSnippet() throws {
+        let s = try XCTUnwrap(EditScripts.replacements([(old: "a\nb", new: "a\nc")], current: nil))
+        XCTAssertEqual(s.before, ["a", "b"])
+        XCTAssertEqual(apply(s), ["a", "c"])
+    }
+
+    func testCodexDiffReplaysToCurrentFile() throws {
+        let current = "a\nb2\nc\nd\nnew\n"
+        let diff = "@@ -1,4 +1,5 @@\n a\n-b\n+b2\n c\n d\n+new\n"
+        let s = try XCTUnwrap(EditScripts.diff(diff, current: current))
+        XCTAssertEqual(s.before, ["a", "b", "c", "d", ""])
+        XCTAssertEqual(apply(s), current.components(separatedBy: "\n"))
+    }
+
+    func testCodexDiffWithoutFileUsesSnippet() throws {
+        let s = try XCTUnwrap(EditScripts.diff("@@ -1,2 +1,2 @@\n keep\n-old\n+new\n", current: nil))
+        XCTAssertEqual(s.before, ["keep", "old"])
+        XCTAssertEqual(apply(s), ["keep", "new"])
+    }
+
+    func testNewFileTypesTopAndAppendsTail() {
+        let text = (1...50).map { "line \($0)" }.joined(separator: "\n")
+        let s = EditScripts.typing(text)
+        XCTAssertEqual(s.ops.first?.insert.count, 32)
+        XCTAssertEqual(apply(s), text.components(separatedBy: "\n"))
+    }
+}

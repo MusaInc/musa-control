@@ -53,6 +53,7 @@ final class AppModel {
     var section: AppSection = .home
     var workspaceProject: String?
     var focusedAgent: String?
+    var studioAgent: String?                   // agent whose live studio is open (over the section)
     var filesProject: String?
     var showLauncher = false
     var launcherProject: String?
@@ -86,6 +87,7 @@ final class AppModel {
         if let s = UserDefaults.standard.string(forKey: "section"), let sec = AppSection(rawValue: s) { section = sec }
         workspaceProject = UserDefaults.standard.string(forKey: "workspaceProject")
         if fx, let i = args.firstIndex(of: "-section"), i + 1 < args.count, let s = AppSection(rawValue: args[i + 1]) { section = s }
+        if fx, let i = args.firstIndex(of: "-studio"), i + 1 < args.count { studioAgent = args[i + 1] }
         if token != nil { phase = .connecting }
     }
 
@@ -216,13 +218,14 @@ final class AppModel {
     func project(_ id: String?) -> Project? { projects.first { $0.id == id } }
     func agent(_ id: String?) -> Agent? { agents.first { $0.id == id } }
 
-    func go(_ s: AppSection) { section = s; UserDefaults.standard.set(s.rawValue, forKey: "section") }
+    func go(_ s: AppSection) { studioAgent = nil; section = s; UserDefaults.standard.set(s.rawValue, forKey: "section") }
     func openWorkspace(_ id: String) {
         workspaceProject = id
         UserDefaults.standard.set(id, forKey: "workspaceProject")
         go(.workspaces)
         Task { _ = try? await client.send("POST", "/api/projects/\(id)/watch", ["minutes": 60], as: WatchState.self) }
     }
+    func openStudio(_ id: String) { studioAgent = id }
     func openAgent(_ id: String) { focusedAgent = id; go(.agents) }
     func attachTerminal(_ tmux: String) { pendingTerminalAttach = tmux; go(.terminal) }
 }

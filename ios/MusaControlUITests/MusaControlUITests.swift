@@ -104,4 +104,23 @@ final class MusaControlUITests: XCTestCase {
         snap(app, "workspace-cityswing")
         XCTAssertTrue(app.buttons["workspace.addPanel"].waitForExistence(timeout: 5))
     }
+
+    /// Active agents in the sidebar open a live studio that replays real work.
+    func testAgentStudio() {
+        for appearance in ["dark", "light"] {
+            let app = launch("home", orientation: .landscapeLeft, appearance: appearance, extra: ["-sidebar.expanded", "YES"])
+            let row = app.buttons["sidebar.agent.codex:sample-2"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8), "running agent listed in the sidebar")
+            snap(app, "studio-sidebar-\(appearance)")
+            row.tap()
+            XCTAssertTrue(app.otherElements["studio"].waitForExistence(timeout: 5) || app.buttons["studio.close"].waitForExistence(timeout: 5), "studio opens")
+            for t in [2, 5, 9] { sleep(t == 2 ? 2 : 3); snap(app, "studio-\(appearance)-\(t)s") }
+            app.buttons["studio.close"].tap(); sleep(1)
+            XCTAssertFalse(app.buttons["studio.close"].exists, "studio closes")
+            app.terminate()
+        }
+        let app = launch("home", orientation: .portrait, extra: ["-studio", "claude:sample-1"])
+        sleep(6)
+        snap(app, "studio-portrait-approval")
+    }
 }

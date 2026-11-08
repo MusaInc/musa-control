@@ -61,6 +61,14 @@ struct RootView: View {
     }
 
     @ViewBuilder private var detail: some View {
+        if let id = app.studioAgent {
+            AgentStudioView(agentId: id).id(id)
+        } else {
+            sectionView
+        }
+    }
+
+    @ViewBuilder private var sectionView: some View {
         switch app.section {
         case .home: HomeView()
         case .workspaces: WorkspacesView()
@@ -86,24 +94,9 @@ struct Sidebar: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(AppSection.allCases) { s in
-                        SidebarRow(section: s, selected: app.section == s, badge: badge(for: s), rail: style == .rail) { navigate { app.go(s) } }
+                        SidebarRow(section: s, selected: app.section == s && app.studioAgent == nil, badge: badge(for: s), rail: style == .rail) { navigate { app.go(s) } }
                     }
-                    if style == .full && !activeProjects.isEmpty {
-                        SectionHeader(title: "Active projects").padding(.top, 10)
-                        ForEach(activeProjects) { p in
-                            Button { navigate { app.openWorkspace(p.id) } } label: {
-                                HStack(spacing: 9) {
-                                    Image(systemName: p.icon).font(.system(size: 12)).frame(width: 18).foregroundStyle(Theme.textDim)
-                                    Text(p.name).font(.system(size: 13.5)).lineLimit(1)
-                                    Spacer()
-                                    StatusDot(status: "working", size: 6)
-                                }
-                                .padding(.horizontal, 12).frame(height: 34).contentShape(Rectangle())
-                                .background(app.section == .workspaces && app.workspaceProject == p.id ? Theme.hover : .clear, in: RoundedRectangle(cornerRadius: 8))
-                            }
-                            .buttonStyle(.plain).padding(.horizontal, 8)
-                        }
-                    }
+                    SidebarAgents(rail: style == .rail) { f in navigate(f) }
                 }
                 .padding(.top, 4)
             }
@@ -159,8 +152,6 @@ struct Sidebar: View {
         f()
         if compact { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
     }
-
-    var activeProjects: [Project] { app.projects.filter { ($0.activeAgents ?? 0) > 0 }.prefix(6).map { $0 } }
 
     func badge(for s: AppSection) -> Int {
         switch s {
