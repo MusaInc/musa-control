@@ -23,7 +23,7 @@ struct AgentStudioView: View {
             if let d = director {
                 StudioHeader(agentId: agentId, agent: agent, director: d)
                 StudioStage(director: d, agent: agent)
-                StudioTicker(director: d)
+                StudioTicker(d: d)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
