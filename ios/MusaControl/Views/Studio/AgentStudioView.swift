@@ -42,7 +42,6 @@ struct AgentStudioView: View {
         }
         .onChange(of: app.eventTick) { _, _ in director?.ingest(Array(app.liveEvents.suffix(40))) }
         .onDisappear { director?.stop() }
-        .accessibilityIdentifier("studio")
     }
 }
 

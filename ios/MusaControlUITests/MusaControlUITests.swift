@@ -113,7 +113,7 @@ final class MusaControlUITests: XCTestCase {
             XCTAssertTrue(row.waitForExistence(timeout: 8), "running agent listed in the sidebar")
             snap(app, "studio-sidebar-\(appearance)")
             row.tap()
-            XCTAssertTrue(app.otherElements["studio"].waitForExistence(timeout: 5) || app.buttons["studio.close"].waitForExistence(timeout: 5), "studio opens")
+            XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 6), "studio opens")
             for t in [2, 5, 9] { sleep(t == 2 ? 2 : 3); snap(app, "studio-\(appearance)-\(t)s") }
             app.buttons["studio.close"].tap(); sleep(1)
             XCTAssertFalse(app.buttons["studio.close"].exists, "studio closes")
