@@ -102,12 +102,13 @@ struct StudioHeader: View {
                 }
                 .animation(.snappy(duration: 0.25), value: captionText)
             }
-            .layoutPriority(1)
             Spacer(minLength: 8)
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 14) { stats; buttons }
-                buttons
+                stats
+                EmptyView()
             }
+            buttons.fixedSize()
+                .layoutPriority(2)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .background(Theme.surface)
