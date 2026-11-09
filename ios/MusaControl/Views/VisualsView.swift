@@ -43,7 +43,7 @@ struct VisualsView: View {
 // MARK: - Remote desktop
 
 struct RemoteDesktopPanel: View {
-    @Environment(\.compactLayout) private var compact
+    @Environment(\.compactLayout) private var narrow
     let initialDisplay: String
     var compact = false
     @Environment(AppModel.self) private var app
@@ -111,13 +111,13 @@ struct RemoteDesktopPanel: View {
                 Label("Observe", systemImage: "eye").tag("observe")
                 Label("Control", systemImage: "cursorarrow.click.2").tag("control")
             }
-            .pickerStyle(.segmented).frame(width: compact ? 150 : 220)
+            .pickerStyle(.segmented).frame(width: narrow ? 150 : 220)
             Text(displays.first { $0.display == display }?.controlledBy ?? "").font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             Spacer()
             IconButton(systemName: "arrow.clockwise", help: "Reconnect") { controller?.reconnect() }
             IconButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Full screen") { fullscreen = true }
         }
-        .padding(.horizontal, 10).scrollsWhenCompact(compact).frame(height: 40).background(Theme.raised)
+        .padding(.horizontal, 10).scrollsWhenCompact(narrow).frame(height: 40).background(Theme.raised)
     }
 
     func stats(_ c: VNCController) -> some View {
