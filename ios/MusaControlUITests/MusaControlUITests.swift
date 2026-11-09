@@ -165,7 +165,7 @@ final class MusaControlUITests: XCTestCase {
             if tag == "landscape" {
                 let pin = app.buttons["studio.pin.editor"]
                 if pin.waitForExistence(timeout: 3) { pin.tap(); sleep(1); snap(app, "studio2-pinned-editor") }
-                let runs = app.otherElements["studio.window.runs"]
+                let runs = app.descendants(matching: .any)["studio.window.runs"]
                 if runs.waitForExistence(timeout: 3) {
                     let bar = runs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
                     bar.press(forDuration: 0.2, thenDragTo: bar.withOffset(CGVector(dx: -320, dy: 160)))
@@ -183,5 +183,29 @@ final class MusaControlUITests: XCTestCase {
         XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8))
         sleep(7)
         snap(app, "studio2-light-editing")
+    }
+
+    /// Scrubber: rewind to the start, replay at 8×, jump to a failure, back to Live.
+    func testStudioScrubber() {
+        let app = launch("deck", orientation: .landscapeLeft, extra: ["-studio", "codex:sample-5"])
+        XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8))
+        sleep(3)
+        let track = app.descendants(matching: .any)["studio.scrub.track"]
+        XCTAssertTrue(track.waitForExistence(timeout: 4), "scrubber track")
+        track.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).tap()
+        sleep(1)
+        snap(app, "scrub-rewound")
+        XCTAssertTrue(app.buttons["studio.scrub.live"].isEnabled, "Live is offered while rewound")
+        for _ in 0..<3 { app.buttons["studio.scrub.rate"].tap() }
+        app.buttons["studio.scrub.play"].tap()
+        sleep(2)
+        snap(app, "scrub-replaying-8x")
+        app.buttons["studio.scrub.play"].tap()
+        app.buttons["studio.scrub.next"].tap()
+        sleep(1)
+        snap(app, "scrub-jumped")
+        app.buttons["studio.scrub.live"].tap()
+        sleep(2)
+        snap(app, "scrub-live-again")
     }
 }

@@ -580,3 +580,37 @@ final class StageCameraTests: XCTestCase {
         XCTAssertGreaterThan(topLeft.offset.height, 0)
     }
 }
+
+final class ScrubberTests: XCTestCase {
+    func ev(_ i: Int, _ kind: String, _ detail: [String: JSONValue] = [:]) -> TimelineEvent {
+        TimelineEvent(id: i, ts: Double(i) * 1000, kind: kind, project: nil, session: "s", title: "\(kind) \(i)", detail: .object(detail), notify: 0)
+    }
+
+    func testMarksClassifyRealOutcomes() {
+        let h = [ev(0, "agent.prompt"), ev(1, "agent.read"), ev(2, "agent.edit"), ev(3, "agent.command"),
+                 ev(4, "agent.command_failed"), ev(5, "agent.test", ["exitCode": .number(1), "output": .string("1 failed")]),
+                 ev(6, "agent.test", ["exitCode": .number(0), "output": .string("3 passed")]), ev(7, "agent.done")]
+        XCTAssertEqual(Scrub.marks(h).map(\.kind), [.prompt, .read, .edit, .command, .failure, .failure, .test, .done])
+        XCTAssertEqual(Scrub.marks(h).map(\.id), Array(0..<8), "ids are history indices")
+    }
+
+    func testJumpsBetweenEditsCommandsAndFailures() {
+        let m = Scrub.marks([ev(0, "agent.message"), ev(1, "agent.edit"), ev(2, "agent.read"), ev(3, "agent.command_failed"), ev(4, "agent.message")])
+        let target: (ScrubMark.Kind) -> Bool = { [.edit, .command, .test, .failure].contains($0) }
+        XCTAssertEqual(Scrub.next(m, after: 0, target), 1)
+        XCTAssertEqual(Scrub.next(m, after: 1, target), 3)
+        XCTAssertNil(Scrub.next(m, after: 3, target))
+        XCTAssertEqual(Scrub.previous(m, before: 5, target), 3)
+        XCTAssertEqual(Scrub.previous(m, before: 3, { $0 == .failure }), nil)
+    }
+
+    func testTrackMapping() {
+        XCTAssertEqual(Scrub.index(at: 0, width: 200, count: 11), 0)
+        XCTAssertEqual(Scrub.index(at: 200, width: 200, count: 11), 10)
+        XCTAssertEqual(Scrub.index(at: 99, width: 200, count: 11), 5)
+        XCTAssertEqual(Scrub.index(at: -40, width: 200, count: 11), 0, "clamped")
+        XCTAssertEqual(Scrub.x(of: 5, width: 200, count: 11), 100)
+        XCTAssertEqual(Scrub.nextRate(1), 2)
+        XCTAssertEqual(Scrub.nextRate(8), 1, "8× wraps to 1×")
+    }
+}

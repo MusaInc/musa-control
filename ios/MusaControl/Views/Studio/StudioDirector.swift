@@ -198,7 +198,8 @@ enum EditScripts {
 @Observable
 final class StudioDirector {
     typealias M = StudioMetrics
-    enum Mode: Equatable { case loading, catchingUp, live }
+    enum Mode: Equatable { case loading, catchingUp, live, rewound }
+    enum Playback: Equatable { case live, replay(playing: Bool) }
     enum CursorStyle: Equatable { case arrow, ibeam, hand }
     enum Region: Hashable, CaseIterable { case stage, explorer, editor, terminal, thought, plan, tests, runs, diff, lightbox, files }
 
@@ -274,6 +275,15 @@ final class StudioDirector {
     var queued = 0
     var celebrateTick = 0
 
+    // Scrubber
+    var playback: Playback = .live
+    var rate: Double = 1
+    var position = 0                       // history index the replay has reached
+    var marks: [ScrubMark] = []
+    var missed = 0                         // live events that arrived while rewound
+    @ObservationIgnored private var paused = false
+    @ObservationIgnored private var generation = 0
+
     @ObservationIgnored private var queue: [TimelineEvent] = []
     @ObservationIgnored private var seen = Set<String>()
     @ObservationIgnored private var runner: Task<Void, Never>?
@@ -298,6 +308,7 @@ final class StudioDirector {
         let evs = (try? await client.get("/api/agents/\(agentId.pathSegment)/timeline", ["limit": "160"], as: [TimelineEvent].self)) ?? []
         history = evs.sorted { $0.ts < $1.ts }
         for e in history { seen.insert(e.stableId) }
+        marks = Scrub.marks(history)
         let replay = Array(history.filter(Self.isScene).suffix(6))
         let cutoff = replay.first?.ts ?? .infinity
         prime(history.filter { $0.ts < cutoff })
@@ -315,6 +326,12 @@ final class StudioDirector {
         guard mode != .loading || !history.isEmpty else { return }
         let fresh = evs.filter { $0.session == agentId && seen.insert($0.stableId).inserted }.sorted { $0.ts < $1.ts }
         guard !fresh.isEmpty else { return }
+        if playback != .live {
+            // Rewound: keep the new events for later, don't play them over the replay.
+            for e in fresh { record(e) }
+            missed += fresh.filter(Self.isScene).count
+            return
+        }
         if mode == .catchingUp, fresh.contains(where: Self.isScene) { mode = .live }
         enqueue(fresh)
     }
@@ -322,12 +339,120 @@ final class StudioDirector {
     /// Replay the agent's most recent actions again.
     func replay() {
         let recent = Array(history.filter(Self.isScene).suffix(8))
-        guard !recent.isEmpty, !busy else { return }
-        mode = .catchingUp
-        enqueue(recent)
+        guard let first = recent.first, let i = history.firstIndex(where: { $0.stableId == first.stableId }), !busy else { return }
+        seek(to: i, play: true)
+    }
+
+    // MARK: Scrubbing
+
+    private func record(_ e: TimelineEvent) {
+        guard !history.contains(where: { $0.stableId == e.stableId }) else { return }
+        history.append(e)
+        if history.count > 400 {
+            history.removeFirst(100)
+            position = max(0, position - 100)
+        }
+        marks = Scrub.marks(history)
+    }
+
+    /// Rewind (or fast-forward) to just before history[index]: the stage is
+    /// rebuilt from the events before it, then (if playing) replays from it.
+    func seek(to index: Int, play: Bool) {
+        playback = .replay(playing: play)
+        mode = .rewound
+        afterStopping { [weak self] in
+            guard let self else { return }
+            let i = max(0, min(index, self.history.count))
+            self.resetStage()
+            self.prime(Array(self.history[..<i]))
+            self.position = i
+            if i < self.history.count {
+                self.editorNote = "Rewound to \(Fmt.time(self.history[i].ts)). Press play to replay from here."
+            }
+            if play { self.startReplay() }
+        }
+    }
+
+    /// Cancels the scene that's playing and waits for it to unwind (a
+    /// cancelled scene finishes its steps instantly) before `then` rebuilds
+    /// the stage, so nothing from the old scene lands on the new one.
+    private func afterStopping(_ then: @escaping @MainActor () -> Void) {
+        let old = runner
+        old?.cancel()
+        runner = nil
+        generation &+= 1
+        let gen = generation
+        queue.removeAll(); queued = 0; paused = false
+        Task { [weak self] in
+            await old?.value
+            guard let self, gen == self.generation else { return }
+            self.busy = false
+            then()
+        }
+    }
+
+    private func startReplay() {
+        let rest = history[position...].filter(Self.isScene)
+        guard !rest.isEmpty else { goLive(); return }
+        queue = Array(rest)
+        queued = queue.count
+        if runner == nil { runner = Task { [weak self] in await self?.run() } }
+    }
+
+    func togglePlay() {
+        switch playback {
+        case .live:
+            replay()
+        case .replay(let playing):
+            if playing {
+                paused = true
+                playback = .replay(playing: false)
+            } else {
+                playback = .replay(playing: true)
+                if paused && runner != nil { paused = false } else { paused = false; startReplay() }
+            }
+        }
+    }
+
+    func cycleRate() { rate = Scrub.nextRate(rate) }
+
+    /// Snap back to the present: rebuild from all history, replay the last
+    /// couple of actions so the stage isn't empty, then follow live again.
+    func goLive() {
+        playback = .live
+        rate = 1
+        missed = 0
+        mode = .live
+        afterStopping { [weak self] in
+            guard let self else { return }
+            self.resetStage()
+            let tail = Array(self.history.filter(Self.isScene).suffix(2))
+            let cutoff = tail.first?.ts ?? .infinity
+            self.prime(self.history.filter { $0.ts < cutoff })
+            self.position = self.history.count
+            if !tail.isEmpty { self.enqueue(tail) }
+        }
+    }
+
+    private func resetStage() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            lines = []; tabs = []; openPath = nil; caret = nil; readLine = nil; editorNote = nil
+            modified = false; scrollY = 0; scrollX = 0
+            term = []; termTyping = nil; termBusy = false; stamp = nil
+            thought = ""; thoughtDone = true; plan = []; photos = []; heroPhoto = nil; instruction = nil
+            ticker = []; runs = []; tests = nil; diff = nil; heat = [:]
+            activeRow = nil; searchText = nil; quickOpen = nil
+            // The user's own arrangement (pins, popped-out windows) survives a rewind.
+            var b = WindowBoard.initial
+            for (k, p) in board.panes where p.pinned != nil || p.floating != nil { b.panes[k] = p }
+            board = b
+        }
+        lastCommand = nil
+        heatClock = 0
     }
 
     func stop() {
+        generation &+= 1
         runner?.cancel(); runner = nil
         queue.removeAll(); queued = 0; busy = false
     }
@@ -340,23 +465,37 @@ final class StudioDirector {
     }
 
     private func run() async {
+        let gen = generation
         busy = true
         while !Task.isCancelled, !queue.isEmpty {
+            while paused && !Task.isCancelled { try? await Task.sleep(nanoseconds: 120_000_000) }
+            if Task.isCancelled { break }
             let e = queue.removeFirst()
             queued = queue.count
-            if !history.contains(where: { $0.stableId == e.stableId }) { history.append(e); if history.count > 400 { history.removeFirst(100) } }
+            record(e)
+            if playback != .live, let i = history.firstIndex(where: { $0.stableId == e.stableId }) { position = i + 1 }
             withAnimation(.snappy(duration: 0.3)) {
                 ticker.append(e)
                 if ticker.count > 7 { ticker.removeFirst(ticker.count - 7) }
             }
             await play(e)
         }
+        guard gen == generation else { return }   // superseded by a seek / go-live
         runner = nil
         busy = false
         if !Task.isCancelled {
-            mode = .live
             readLine = nil
             cursorStyle = .arrow
+            if case .replay = playback {
+                // Reached the end of the replay: caught up with the present.
+                if position >= history.count {
+                    playback = .live; mode = .live; rate = 1; missed = 0
+                } else {
+                    playback = .replay(playing: false)
+                }
+            } else {
+                mode = .live
+            }
         }
     }
 
@@ -364,6 +503,7 @@ final class StudioDirector {
 
     private var speed: Double {
         if reduceMotion { return 12 }
+        if case .replay = playback { return rate }
         let base: Double
         switch queue.count {
         case 0...1: base = 1

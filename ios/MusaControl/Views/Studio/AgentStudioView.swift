@@ -25,7 +25,7 @@ struct AgentStudioView: View {
             if let d = director {
                 StudioHeader(agentId: agentId, agent: agent, director: d)
                 StudioStage(director: d, agent: agent)
-                StudioTicker(d: d)
+                StudioScrubber(d: d)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -63,6 +63,7 @@ struct StudioHeader: View {
 
     var captionText: String {
         if director.busy { return director.caption }
+        if director.mode == .rewound { return "Paused in the replay — press play, or Live to catch up" }
         switch status {
         case "working": return "Thinking about the next step"
         case "approval": return "Waiting for your approval"
@@ -72,6 +73,7 @@ struct StudioHeader: View {
     }
     var captionIcon: String {
         if director.busy { return director.captionIcon }
+        if director.mode == .rewound { return "pause.circle" }
         switch status {
         case "working": return "brain"
         case "approval": return "hand.raised"
@@ -171,7 +173,10 @@ struct LivePill: View {
     @State private var on = false
     var body: some View {
         Group {
-            if mode == .catchingUp {
+            if mode == .rewound {
+                Label("Rewound", systemImage: "clock.arrow.circlepath").foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 7).padding(.vertical, 2).background(Theme.accent.opacity(0.14), in: Capsule())
+            } else if mode == .catchingUp {
                 Label("Replaying recent", systemImage: "backward.fill").foregroundStyle(Theme.purple)
                     .padding(.horizontal, 7).padding(.vertical, 2).background(Theme.purple.opacity(0.14), in: Capsule())
             } else if status == "working" || status == "approval" {
@@ -967,42 +972,6 @@ struct ApprovalMoment: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("\(agent.agentName) is asking for approval"))
         .accessibilityAddTraits(.isModal)
-    }
-}
-
-// MARK: Ticker
-
-struct StudioTicker: View {
-    let d: StudioDirector
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "waveform.path.ecg").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
-            HStack(spacing: 6) {
-                ForEach(d.ticker.reversed(), id: \.stableId) { e in
-                    HStack(spacing: 5) {
-                        Image(systemName: e.icon).font(.system(size: 10.5))
-                            .foregroundStyle(e.tint == "other" ? Theme.textDim : Theme.status(e.tint))
-                        Text(stepTitle(e)).lineLimit(1).truncationMode(.middle)
-                    }
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.textDim)
-                    .padding(.horizontal, 9).frame(height: 24)
-                    .background(Theme.raised, in: Capsule())
-                    .frame(maxWidth: 230)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity), removal: .opacity))
-                }
-            }
-            Spacer(minLength: 0)
-            if d.queued > 0 {
-                Text("+\(d.queued) coming").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.purple)
-                    .contentTransition(.numericText(value: Double(d.queued)))
-            }
-        }
-        .padding(.horizontal, 14).frame(height: 38)
-        .background(Theme.surface)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
-        .clipped()
     }
 }
 
