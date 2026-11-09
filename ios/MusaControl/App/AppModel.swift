@@ -74,6 +74,7 @@ final class AppModel {
     var followFocus: FollowFocus?
 
     private var refreshTask: Task<Void, Never>?
+    private var fixtureStream: Task<Void, Never>?
 
     init() {
         let args = ProcessInfo.processInfo.arguments
@@ -147,10 +148,12 @@ final class AppModel {
         guard !fixtures else {
             // UI tests: replay the sample timeline through the same path live events take.
             streamState = .live
-            Task {
+            fixtureStream?.cancel()
+            fixtureStream = Task {
                 let evs = (try? await client.get("/api/timeline", as: [TimelineEvent].self)) ?? []
                 for e in evs.sorted(by: { $0.ts < $1.ts }) { receive(e) }
                 banner = nil
+                await replayFixtureLive()
             }
             return
         }
@@ -165,7 +168,7 @@ final class AppModel {
         s.start()
     }
 
-    func suspend() { stream?.stop(); refreshTask?.cancel() }
+    func suspend() { stream?.stop(); refreshTask?.cancel(); fixtureStream?.cancel() }
     func resume() { Task { await connect() } }
 
     private func startRefreshLoop() {
@@ -203,6 +206,26 @@ final class AppModel {
         if ev.notify == 1 {
             Notifier.shared.deliver(ev, foreground: UIApplication.shared.applicationState == .active)
             if UIApplication.shared.applicationState == .active { banner = ev }
+        }
+    }
+
+    /// UI tests / offline demo: replays the recorded session in
+    /// Fixtures/live.json through the live path, in a loop, stamped with the
+    /// current time, so the deck and studio have something real to show.
+    private struct LiveStep: Decodable { let after: Double; let event: TimelineEvent? }
+    private func replayFixtureLive() async {
+        guard fixtures, !ProcessInfo.processInfo.arguments.contains("-noLive"),
+              let u = Bundle.main.url(forResource: "live", withExtension: "json", subdirectory: "Fixtures"),
+              let d = try? Data(contentsOf: u), let steps = try? JSONDecoder().decode([LiveStep].self, from: d), !steps.isEmpty else { return }
+        var n = 0
+        while !Task.isCancelled {
+            for s in steps {
+                try? await Task.sleep(nanoseconds: UInt64(s.after * 1_000_000_000))
+                guard let e = s.event else { continue }
+                n += 1
+                receive(TimelineEvent(id: 500_000 + n, ts: Date().timeIntervalSince1970 * 1000, kind: e.kind, project: e.project,
+                                      session: e.session, title: e.title, detail: e.detail, notify: 0))
+            }
         }
     }
 

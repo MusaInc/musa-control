@@ -26,7 +26,7 @@ final class MusaControlPhoneUITests: XCTestCase {
 
     func testEverySectionPortrait() {
         for appearance in ["dark", "light"] {
-            let sections = appearance == "light" ? ["home", "agents", "git", "settings"] : ["home", "workspaces", "agents", "terminal", "files", "visuals", "git", "settings"]
+            let sections = appearance == "light" ? ["home", "agents", "git", "settings"] : ["home", "deck", "workspaces", "agents", "terminal", "files", "visuals", "git", "settings"]
             for s in sections {
                 let app = launch(s, appearance: appearance)
                 XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
@@ -51,7 +51,7 @@ final class MusaControlPhoneUITests: XCTestCase {
     /// Tabs switch sections; More opens every other section and the agents.
     func testTabBarAndMore() {
         let app = launch("home")
-        for t in ["agents", "terminal", "files", "home"] {
+        for t in ["deck", "agents", "terminal", "home"] {
             let b = app.buttons["tab.\(t)"]
             XCTAssertTrue(b.waitForExistence(timeout: 5), "tab.\(t)")
             b.tap(); sleep(1)
@@ -114,5 +114,32 @@ final class MusaControlPhoneUITests: XCTestCase {
         let app = launch("home", extra: ["-studio", "codex:sample-2"])
         XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8), "studio opens on a phone")
         for t in [2, 6] { sleep(UInt32(t == 2 ? 2 : 4)); snap(app, "studio-\(t)s") }
+    }
+
+    /// Phone deck: swipeable hero cards for the busiest agents, focus cards
+    /// below, settled chips last; a card opens the studio.
+    func testCommandDeckOnPhone() {
+        for appearance in ["dark", "light"] {
+            let app = launch("deck", appearance: appearance)
+            XCTAssertTrue(app.buttons["tab.deck"].waitForExistence(timeout: 6))
+            XCTAssertTrue(app.buttons["deck.tile.claude:sample-1"].waitForExistence(timeout: 8), "approval agent leads")
+            sleep(3)
+            snap(app, "deck-\(appearance)")
+            if appearance == "dark" {
+                app.buttons["deck.tile.claude:sample-1"].swipeLeft(); sleep(1)
+                snap(app, "deck-hero-swiped")
+                app.swipeUp(); sleep(1)
+                snap(app, "deck-scrolled")
+                app.swipeDown(); sleep(1)
+                let card = app.buttons["deck.tile.claude:sample-1"]
+                if card.waitForExistence(timeout: 3) {
+                    card.tap()
+                    XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 6), "card opens the studio")
+                    sleep(3)
+                    snap(app, "deck-studio")
+                }
+            }
+            app.terminate()
+        }
     }
 }

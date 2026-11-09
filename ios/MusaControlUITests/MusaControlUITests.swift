@@ -123,4 +123,32 @@ final class MusaControlUITests: XCTestCase {
         sleep(6)
         snap(app, "studio-portrait-approval")
     }
+
+    /// Command Deck: live tiles sized by activity, approval up front; a tile
+    /// grows into the studio and shrinks back.
+    func testCommandDeck() {
+        for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
+            for appearance in ["dark", "light"] {
+                let app = launch("deck", orientation: orientation, appearance: appearance)
+                XCTAssertTrue(app.buttons["deck.tile.claude:sample-1"].waitForExistence(timeout: 8), "approval tile on the deck")
+                sleep(3)
+                snap(app, "deck-\(tag)-\(appearance)")
+                if appearance == "dark" { sleep(6); snap(app, "deck-\(tag)-\(appearance)-later") }
+                app.terminate()
+            }
+        }
+        let app = launch("deck", orientation: .landscapeLeft)
+        let tile = app.buttons["deck.tile.codex:sample-2"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 8), "working agent has a tile")
+        XCTAssertTrue(app.buttons["deck.chip.claude:sample-4"].exists, "ended agent settles into a chip")
+        tile.tap()
+        snap(app, "deck-expanding")
+        XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 6), "tile expands into the studio")
+        sleep(5)
+        snap(app, "deck-expanded-studio")
+        app.buttons["studio.close"].tap()
+        XCTAssertTrue(app.buttons["deck.tile.codex:sample-2"].waitForExistence(timeout: 5), "studio shrinks back into the deck")
+        sleep(1)
+        snap(app, "deck-after-close")
+    }
 }
