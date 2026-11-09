@@ -204,6 +204,7 @@ struct StudioStage: View {
     let agent: Agent?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.stageAnimates) private var animates
+    @Environment(\.compactLayout) private var compact
     @State private var shot = StageCamera.Shot()
     @State private var touching = false
     var d: StudioDirector { director }
@@ -227,7 +228,7 @@ struct StudioStage: View {
                             PaneHost(kind: k, frame: f, origin: area.origin, area: area.size,
                                      floating: layout.floating.contains(k), primary: layout.primary == k, d: d) { pane(k) }
                                 .zIndex(z(k, layout))
-                                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.5, anchor: .bottom).combined(with: .opacity))
+                                .transition(reduceMotion || compact ? AnyTransition.opacity : AnyTransition.scale(scale: 0.5, anchor: .bottom).combined(with: .opacity))
                         }
                     }
                     CelebrateBurst(tick: d.celebrateTick, animates: animates)
@@ -731,7 +732,7 @@ struct TerminalWindow: View {
                         .lineLimit(1).truncationMode(.tail)
                         .frame(maxWidth: .infinity, minHeight: M.termLineH, maxHeight: M.termLineH, alignment: .leading)
                         .background(l.id == d.term.last?.id && animates ? color(l.kind).opacity(0.08) : .clear)
-                        .transition(animates ? AnyTransition.push(from: .bottom).combined(with: .opacity) : .opacity)
+                        .transition(.opacity)
                 }
                 HStack(spacing: 0) {
                     (Text(d.prompt).foregroundStyle(Color(red: 0.5, green: 0.75, blue: 1.0)) + Text(d.termTyping ?? "").foregroundStyle(Color.white))

@@ -131,6 +131,7 @@ struct StudioDock: View {
     let kinds: [PaneKind]
     let d: StudioDirector
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.compactLayout) private var compact
 
     var body: some View {
         HStack(spacing: 6) {
@@ -142,11 +143,11 @@ struct StudioDock: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: k.icon).font(.system(size: 11, weight: .semibold))
-                        Text(k.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                        if !compact { Text(k.title).font(.system(size: 12, weight: .medium)).lineLimit(1).fixedSize() }
                         if let b = badge(k) { Text(b.0).font(.system(size: 10.5, weight: .bold).monospacedDigit()).foregroundStyle(b.1) }
                     }
                     .foregroundStyle(Theme.text)
-                    .padding(.horizontal, 11).frame(height: 32)
+                    .padding(.horizontal, compact ? 9 : 11).frame(minWidth: compact ? 36 : nil).frame(height: 32)
                     .background(Theme.surface, in: Capsule())
                     .overlay(Capsule().stroke(Theme.lineStrong))
                     .contentShape(Capsule())
