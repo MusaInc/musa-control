@@ -551,6 +551,7 @@ struct RunRow: View {
 /// The latest edit, split: what was there, what replaced it.
 struct DiffPane: View {
     let split: DiffSplit?
+    @Environment(\.stageAnimates) private var animates
     var body: some View {
         StudioWindow(title: split.map { "Diff — \(($0.path as NSString).lastPathComponent)" } ?? "Diff", icon: "arrow.left.arrow.right") {
             if let s = split {
@@ -583,7 +584,7 @@ struct DiffPane: View {
                         }
                         .padding(10)
                         .id(s.id)
-                        .transition(.opacity)
+                        .transition(.codeLine(Theme.green, animates: animates))
                     }
                     .scrollIndicators(.hidden)
                 }

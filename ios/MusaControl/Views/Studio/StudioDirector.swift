@@ -698,10 +698,16 @@ final class StudioDirector {
             guard let o = v["old"]?.string, let n = v["new"]?.string else { return nil }
             return (old: o, new: n)
         }
-        var script: EditScript?
-        if !edits.isEmpty { script = EditScripts.replacements(edits, current: current) }
-        else if let d = e.detail?["diff"]?.string, !d.isEmpty { script = EditScripts.diff(d, current: current) }
-        else if let current, e.detail?["tool"]?.string == "Write" || change == "add" { script = EditScripts.typing(current) }
+        // Working out the edit script (undoing edits, replaying diffs) is
+        // string work on whole files: keep it off the main thread.
+        let diffText = e.detail?["diff"]?.string
+        let isWrite = e.detail?["tool"]?.string == "Write" || change == "add"
+        let script: EditScript? = await Task.detached(priority: .userInitiated) { () -> EditScript? in
+            if !edits.isEmpty { return EditScripts.replacements(edits, current: current) }
+            if let d = diffText, !d.isEmpty { return EditScripts.diff(d, current: current) }
+            if let current, isWrite { return EditScripts.typing(current) }
+            return nil
+        }.value
 
         if change == "delete" {
             if lines.isEmpty, let s = script { showDoc(s.before) }
@@ -953,7 +959,7 @@ final class StudioDirector {
 
     /// Parse the real output into the test matrix and fill it in, cell by cell.
     private func showTests(_ out: String, ok: Bool) async {
-        let p = TestParser.parse(out)
+        let p = await Task.detached(priority: .userInitiated) { TestParser.parse(out) }.value
         var run = tests ?? TestRun(id: seq, command: lastCommand ?? "")
         run.running = false
         run.ok = ok

@@ -14,7 +14,9 @@ struct AgentStudioView: View {
     let agentId: String
     @Environment(AppModel.self) private var app
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @State private var director: StudioDirector?
+    @State private var visible = false
 
     var agent: Agent? { app.agent(agentId) }
 
@@ -30,6 +32,8 @@ struct AgentStudioView: View {
             if let agent { AgentComposer(agent: agent) }
         }
         .background(Theme.bg)
+        .environment(\.stageAnimates, visible && scenePhase == .active && !reduceMotion)
+        .onAppear { visible = true }
         .task(id: agentId) {
             let d = StudioDirector(agentId: agentId, client: app.client)
             d.reduceMotion = reduceMotion
@@ -41,7 +45,7 @@ struct AgentStudioView: View {
             d.ingest(Array(app.liveEvents.suffix(80)))
         }
         .onChange(of: app.eventTick) { _, _ in director?.ingest(Array(app.liveEvents.suffix(40))) }
-        .onDisappear { director?.stop() }
+        .onDisappear { visible = false; director?.stop() }
     }
 }
 
@@ -194,6 +198,9 @@ struct StudioStage: View {
     let director: StudioDirector
     let agent: Agent?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stageAnimates) private var animates
+    @State private var shot = StageCamera.Shot()
+    @State private var touching = false
     var d: StudioDirector { director }
 
     var body: some View {
@@ -201,17 +208,39 @@ struct StudioStage: View {
             let pad: CGFloat = geo.size.width < 500 ? 10 : 14
             let area = CGRect(x: pad, y: pad, width: max(0, geo.size.width - pad * 2), height: max(0, geo.size.height - pad * 2))
             let layout = d.board.layout(in: area.size)
+            let approving = agent?.approval != nil
+            let target = animates && !approving ? StageCamera.shot(stage: geo.size, focus: d.focus.flatMap { d.frames[$0] }) : StageCamera.Shot()
             ZStack(alignment: .topLeading) {
+                // Depth: the backdrop moves less than the windows.
                 StageBackdrop(tint: agent?.tint ?? Theme.accent, active: agent?.status == "working")
+                    .scaleEffect(1 + (shot.scale - 1) * 0.4)
+                    .offset(x: shot.offset.width * 0.35, y: shot.offset.height * 0.35)
 
-                ForEach(layout.tiled + layout.floating, id: \.self) { k in
-                    if let f = layout.frames[k] {
-                        PaneHost(kind: k, frame: f, origin: area.origin, area: area.size,
-                                 floating: layout.floating.contains(k), primary: layout.primary == k, d: d) { pane(k) }
-                            .zIndex(z(k, layout))
-                            .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.5, anchor: .bottom).combined(with: .opacity))
+                ZStack(alignment: .topLeading) {
+                    ForEach(layout.tiled + layout.floating, id: \.self) { k in
+                        if let f = layout.frames[k] {
+                            PaneHost(kind: k, frame: f, origin: area.origin, area: area.size,
+                                     floating: layout.floating.contains(k), primary: layout.primary == k, d: d) { pane(k) }
+                                .zIndex(z(k, layout))
+                                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.5, anchor: .bottom).combined(with: .opacity))
+                        }
                     }
+                    CelebrateBurst(tick: d.celebrateTick, animates: animates)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .zIndex(32)
+                    if animates {
+                        CursorTrail(point: d.cursor, tint: agent?.tint ?? Theme.accent).zIndex(39)
+                    }
+                    StudioCursor(d: d, name: agent?.shortName ?? "Agent", tint: agent?.tint ?? Theme.accent)
+                        .zIndex(40)
                 }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .coordinateSpace(.named("stage"))
+                .scaleEffect(shot.scale)
+                .offset(shot.offset)
+                .blur(radius: approving && animates ? 3 : 0)
+
+                StageFailureGlow(tick: d.shakeTick, animates: animates)
 
                 if !layout.docked.isEmpty {
                     StudioDock(kinds: layout.docked, d: d)
@@ -237,29 +266,16 @@ struct StudioStage: View {
                         .zIndex(31)
                 }
 
-                CelebrateBurst(tick: d.celebrateTick)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .zIndex(32)
-
-                StudioCursor(d: d, name: agent?.shortName ?? "Agent", tint: agent?.tint ?? Theme.accent)
-                    .zIndex(40)
-
                 if let a = agent, let p = a.approval {
-                    VStack {
-                        Spacer()
-                        ApprovalCard(agent: a, prompt: p)
-                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
-                            .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
-                            .frame(maxWidth: 640)
-                            .padding(18)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black.opacity(0.14))
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(50)
+                    ApprovalMoment(agent: a, prompt: p, animates: animates)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .transition(.opacity)
+                        .zIndex(50)
                 }
             }
-            .coordinateSpace(.named("stage"))
+            .simultaneousGesture(DragGesture(minimumDistance: 0)
+                .onChanged { _ in if !touching { touching = true } }
+                .onEnded { _ in touching = false; d.userTouched() })
             .onAppear {
                 d.frames[.stage] = CGRect(origin: .zero, size: geo.size)
                 d.boardSize = area.size
@@ -270,8 +286,14 @@ struct StudioStage: View {
                 d.boardSize = s
                 d.showExplorer = WindowBoard.capacity(s) >= 3
             }
+            // The camera follows the action, but never while you're touching
+            // the stage or steering the windows; it settles back when it's off.
+            .onChange(of: target) { _, t in
+                guard !touching, !d.userSteering || t == StageCamera.Shot() else { return }
+                withAnimation(.smooth(duration: 1.6)) { shot = t }
+            }
             .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.55, bounce: 0.12), value: layout)
-            .animation(.snappy(duration: 0.3), value: agent?.approval != nil)
+            .animation(.snappy(duration: 0.3), value: approving)
         }
         .clipped()
     }
@@ -558,6 +580,7 @@ struct EditorWindow: View {
 
 struct CodeArea: View {
     let d: StudioDirector
+    @Environment(\.stageAnimates) private var animates
 
     var body: some View {
         GeometryReader { geo in
@@ -574,10 +597,10 @@ struct CodeArea: View {
                         .animation(.linear(duration: 0.06), value: r)
                 }
                 ForEach(Array(zip(first..<last, d.lines[first..<last])), id: \.1.id) { i, line in
-                    CodeLineRow(number: i + 1, text: line.text, mark: line.mark, sel: line.sel, path: path, scrollX: d.scrollX)
+                    CodeLineRow(number: i + 1, text: line.text, mark: line.mark, sel: line.sel, path: path, scrollX: d.scrollX, animates: animates)
                         .equatable()
                         .offset(y: M.codeTop + CGFloat(i) * M.lineH - d.scrollY)
-                        .transition(.opacity)
+                        .transition(.codeLine(Theme.green, animates: animates))
                 }
                 if let c = d.caret, c.line >= first, c.line <= last {
                     let x = M.gutter + M.codePad + CGFloat(c.col) * M.codeCharW - d.scrollX - 1
@@ -626,6 +649,7 @@ struct CodeLineRow: View, Equatable {
     let sel: Range<Int>?
     let path: String
     let scrollX: CGFloat
+    var animates = false
 
     var markColor: Color {
         switch mark { case .added: return Theme.green; case .selected: return Theme.blue; case .typing: return Theme.accent; case .none: return .clear }
@@ -647,6 +671,9 @@ struct CodeLineRow: View, Equatable {
                         .offset(x: CGFloat(sel.lowerBound) * M.codeCharW)
                 }
                 Text(SyntaxHighlighter.attributed(text, path: path)).lineLimit(1).fixedSize()
+                if animates, mark == .typing, let last = text.last, !last.isWhitespace {
+                    TypingBloom(char: last, color: SyntaxHighlighter.lastColor(text, path: path), x: CGFloat(text.count - 1) * M.codeCharW, count: text.count)
+                }
             }
             .offset(x: -scrollX)
             .padding(.leading, M.codePad)
@@ -674,6 +701,7 @@ struct BlinkCaret: View {
 
 struct TerminalWindow: View {
     let d: StudioDirector
+    @Environment(\.stageAnimates) private var animates
 
     func color(_ k: TermLine.Kind) -> Color {
         switch k {
@@ -696,8 +724,9 @@ struct TerminalWindow: View {
                 ForEach(d.term.suffix(40)) { l in
                     Text(l.text).font(.system(size: 12, design: .monospaced)).foregroundStyle(color(l.kind))
                         .lineLimit(1).truncationMode(.tail)
-                        .frame(height: M.termLineH, alignment: .leading)
-                        .transition(.opacity)
+                        .frame(maxWidth: .infinity, minHeight: M.termLineH, maxHeight: M.termLineH, alignment: .leading)
+                        .background(l.id == d.term.last?.id && animates ? color(l.kind).opacity(0.08) : .clear)
+                        .transition(animates ? AnyTransition.push(from: .bottom).combined(with: .opacity) : .opacity)
                 }
                 HStack(spacing: 0) {
                     (Text(d.prompt).foregroundStyle(Color(red: 0.5, green: 0.75, blue: 1.0)) + Text(d.termTyping ?? "").foregroundStyle(Color.white))
@@ -711,8 +740,9 @@ struct TerminalWindow: View {
             .padding(.horizontal, M.termPad).padding(.bottom, M.termPad)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .clipped()
-            .modifier(Shake(animatableData: CGFloat(d.shakeTick)))
+            .modifier(Shake(animatableData: animates ? CGFloat(d.shakeTick) : 0))
             .animation(.linear(duration: 0.45), value: d.shakeTick)
+            .modifier(FailureFlare(tick: d.shakeTick, animates: animates))
             .overlay(alignment: .topTrailing) {
                 if let s = d.stamp {
                     Text(s.text).font(.system(size: 13, weight: .heavy, design: .rounded)).lineLimit(2).multilineTextAlignment(.center)
@@ -867,24 +897,33 @@ struct ClickRipple: View {
     }
 }
 
+/// A finished turn: a soft ring and the seal, with a few confetti pieces
+/// (none with Reduce Motion).
 struct CelebrateBurst: View {
     let tick: Int
-    static let colors: [Color] = [Theme.accent, Theme.green, Theme.blue, Theme.purple, Theme.yellow]
+    var animates = true
+    private static let palette: [Color] = [Theme.accent, Theme.green, Theme.blue, Theme.purple, Theme.yellow]
     var body: some View {
+        let colors = Self.palette
+        let particles = animates
         Color.clear.frame(width: 1, height: 1)
             .keyframeAnimator(initialValue: CGFloat(1), trigger: tick) { _, p in
                 ZStack {
-                    ForEach(0..<18, id: \.self) { i in
-                        let a = Double(i) / 18 * 2 * .pi
-                        let r = (90 + CGFloat(i % 3) * 30) * p
-                        RoundedRectangle(cornerRadius: 1.5).fill(Self.colors[i % Self.colors.count])
-                            .frame(width: 7, height: i % 2 == 0 ? 7 : 12)
-                            .rotationEffect(.radians(a + Double(p) * 3))
-                            .offset(x: cos(a) * r, y: sin(a) * r + p * p * 40)
-                            .opacity(p >= 1 ? 0 : Double(1 - p))
+                    Circle().stroke(Theme.green.opacity(p >= 1 ? 0 : Double(1 - p) * 0.6), lineWidth: 2)
+                        .frame(width: 60 + 220 * p, height: 60 + 220 * p)
+                    if particles {
+                        ForEach(0..<12, id: \.self) { i in
+                            let a = Double(i) / 12 * 2 * .pi
+                            let r = (80 + CGFloat(i % 3) * 26) * p
+                            RoundedRectangle(cornerRadius: 1.5).fill(colors[i % colors.count])
+                                .frame(width: 6, height: i % 2 == 0 ? 6 : 11)
+                                .rotationEffect(.radians(a + Double(p) * 3))
+                                .offset(x: cos(a) * r, y: sin(a) * r + p * p * 36)
+                                .opacity(p >= 1 ? 0 : Double(1 - p))
+                        }
                     }
-                    Image(systemName: "checkmark.seal.fill").font(.system(size: 58)).foregroundStyle(Theme.green)
-                        .scaleEffect(p >= 1 ? 0.4 : 0.8 + 0.5 * min(1, p * 4))
+                    Image(systemName: "checkmark.seal.fill").font(.system(size: 54)).foregroundStyle(Theme.green)
+                        .scaleEffect(p >= 1 ? 0.4 : 0.8 + 0.4 * min(1, p * 4))
                         .opacity(p >= 1 ? 0 : p < 0.7 ? 1 : Double((1 - p) / 0.3))
                 }
             } keyframes: { _ in
@@ -895,6 +934,39 @@ struct CelebrateBurst: View {
             }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+}
+
+/// An approval request takes the stage: everything else dims and blurs,
+/// the request (with its real Approve/Deny options) comes forward with a
+/// warm glow, and the device taps once.
+struct ApprovalMoment: View {
+    let agent: Agent
+    let prompt: ApprovalPrompt
+    let animates: Bool
+    @State private var shown = false
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Theme.scrim
+            ApprovalCard(agent: agent, prompt: prompt)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.yellow.opacity(0.7), lineWidth: 1.5))
+                .shadow(color: Theme.yellow.opacity(animates ? 0.28 : 0), radius: 30)
+                .shadow(color: Theme.shadow, radius: 24, y: 8)
+                .frame(maxWidth: 640)
+                .padding(18)
+                .scaleEffect(shown || !animates ? 1 : 0.94)
+                .offset(y: shown || !animates ? 0 : 24)
+                .frame(maxHeight: .infinity, alignment: .center)
+        }
+        .onAppear {
+            Device.notify(.warning)
+            withAnimation(.spring(duration: 0.5, bounce: 0.25)) { shown = true }
+        }
+        .sensoryFeedback(.warning, trigger: prompt.signature)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("\(agent.agentName) is asking for approval"))
+        .accessibilityAddTraits(.isModal)
     }
 }
 

@@ -557,3 +557,26 @@ final class WindowBoardTests: XCTestCase {
         XCTAssertNil(WindowRules.route(ev("agent.plan"), testResult: false).focus, "plan updates don't steal focus")
     }
 }
+
+final class StageCameraTests: XCTestCase {
+    let stage = CGSize(width: 1100, height: 700)
+
+    func testNoFocusNoMove() {
+        XCTAssertEqual(StageCamera.shot(stage: stage, focus: nil), StageCamera.Shot())
+        XCTAssertEqual(StageCamera.shot(stage: stage, focus: CGRect(origin: .zero, size: stage)).scale, 1, accuracy: 0.0001, "a full-stage window doesn't zoom")
+    }
+
+    func testLeansTowardTheActionButNeverShowsTheEdge() {
+        for f in [CGRect(x: 0, y: 0, width: 300, height: 200), CGRect(x: 800, y: 500, width: 300, height: 200),
+                  CGRect(x: 400, y: 250, width: 300, height: 200), CGRect(x: 0, y: 0, width: 680, height: 700)] {
+            let s = StageCamera.shot(stage: stage, focus: f)
+            XCTAssertLessThanOrEqual(s.scale, 1.06 + 0.0001, "gentle")
+            XCTAssertGreaterThanOrEqual(s.scale, 1)
+            let c = StageCamera.covered(s, stage: stage)
+            XCTAssertTrue(c.insetBy(dx: -0.01, dy: -0.01).contains(CGRect(origin: .zero, size: stage)), "viewport stays covered for \(f)")
+        }
+        let topLeft = StageCamera.shot(stage: stage, focus: CGRect(x: 0, y: 0, width: 300, height: 200))
+        XCTAssertGreaterThan(topLeft.offset.width, 0, "pans toward a top-left window")
+        XCTAssertGreaterThan(topLeft.offset.height, 0)
+    }
+}

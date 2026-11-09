@@ -105,6 +105,13 @@ enum SyntaxHighlighter {
         return out
     }
 
+    /// Syntax colour of the last character of a line (for the typing bloom).
+    static func lastColor(_ line: String, path: String) -> Color {
+        let ns = highlight(line, path: path, font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular))
+        guard ns.length > 0, let c = ns.attribute(.foregroundColor, at: ns.length - 1, effectiveRange: nil) as? UIColor else { return Theme.accent }
+        return Color(uiColor: c)
+    }
+
     static func attributed(_ line: String, path: String) -> AttributedString {
         let ns = highlight(line, path: path, font: UIFont.monospacedSystemFont(ofSize: 12.5, weight: .regular))
         return (try? AttributedString(ns, including: \.uiKit)) ?? AttributedString(line)
