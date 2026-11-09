@@ -277,31 +277,39 @@ struct DeckThreads: View {
     let links: [DeckLinks.Link]
     let animate: Bool
 
+    static func point(_ a: CGPoint, _ c: CGPoint, _ b: CGPoint, _ u: CGFloat) -> CGPoint {
+        let v: CGFloat = 1 - u
+        let x: CGFloat = v * v * a.x + 2 * v * u * c.x + u * u * b.x
+        let y: CGFloat = v * v * a.y + 2 * v * u * c.y + u * u * b.y
+        return CGPoint(x: x, y: y)
+    }
+
+    static func draw(_ gc: inout GraphicsContext, links: [DeckLinks.Link], t: Double, motes: Bool) {
+        for (i, l) in links.enumerated() {
+            let a: CGPoint = l.a, b: CGPoint = l.b
+            let dx: CGFloat = b.x - a.x, dy: CGFloat = b.y - a.y
+            let len: CGFloat = max(1, hypot(dx, dy))
+            let sign: CGFloat = i % 2 == 0 ? 1 : -1
+            let bend: CGFloat = min(80, len * 0.18) * sign
+            let c = CGPoint(x: (a.x + b.x) / 2 - dy / len * bend, y: (a.y + b.y) / 2 + dx / len * bend)
+            var p = Path()
+            p.move(to: a)
+            p.addQuadCurve(to: b, control: c)
+            let alpha: Double = l.lively ? 0.34 : 0.16
+            let style = StrokeStyle(lineWidth: 1, lineCap: .round, dash: [2, 6], dashPhase: CGFloat(-t * 14))
+            gc.stroke(p, with: .color(Theme.accent.opacity(alpha)), style: style)
+            guard l.lively && motes else { continue }
+            // A mote travelling along the thread.
+            let u = CGFloat((t * 0.22 + Double(i) * 0.37).truncatingRemainder(dividingBy: 1))
+            let q = point(a, c, b, u)
+            gc.fill(Path(ellipseIn: CGRect(x: q.x - 2.5, y: q.y - 2.5, width: 5, height: 5)), with: .color(Theme.accent.opacity(0.7)))
+        }
+    }
+
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30, paused: !animate || links.isEmpty)) { ctx in
             let t = animate ? ctx.date.timeIntervalSinceReferenceDate : 0
-            Canvas { gc, _ in
-                for (i, l) in links.enumerated() {
-                    let a = l.a, b = l.b
-                    let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-                    let dx = b.x - a.x, dy = b.y - a.y
-                    let len = max(1, hypot(dx, dy))
-                    let bend = min(80, len * 0.18) * (i % 2 == 0 ? 1 : -1)
-                    let c = CGPoint(x: mid.x - dy / len * bend, y: mid.y + dx / len * bend)
-                    var p = Path()
-                    p.move(to: a)
-                    p.addQuadCurve(to: b, control: c)
-                    gc.stroke(p, with: .color(Theme.accent.opacity(l.lively ? 0.34 : 0.16)),
-                              style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [2, 6], dashPhase: CGFloat(-t * 14)))
-                    if l.lively && animate {
-                        // A mote travelling along the thread.
-                        let u = CGFloat((t * 0.22 + Double(i) * 0.37).truncatingRemainder(dividingBy: 1))
-                        let q = CGPoint(x: (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * c.x + u * u * b.x,
-                                        y: (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * c.y + u * u * b.y)
-                        gc.fill(Path(ellipseIn: CGRect(x: q.x - 2.5, y: q.y - 2.5, width: 5, height: 5)), with: .color(Theme.accent.opacity(0.7)))
-                    }
-                }
-            }
+            Canvas { gc, _ in Self.draw(&gc, links: links, t: t, motes: animate) }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
