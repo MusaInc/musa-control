@@ -359,7 +359,6 @@ struct DeckTile: View {
             .contentShape(RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(DeckPress())
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(entry.accessibilitySummary))
         .accessibilityHint(Text("Opens the live studio"))
         .accessibilityIdentifier("deck.tile.\(a.id)")
@@ -532,7 +531,7 @@ struct MiniStage: View {
                     Text(t).font(.system(size: 11.5, design: .monospaced))
                         .foregroundStyle(termColor).lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 0)
-                    if let s = pulse.tests {
+                    if let s = pulse.tests, !t.contains(s), !s.contains(t) {
                         Text(s).font(.system(size: 10.5, weight: .bold, design: .rounded)).lineLimit(1)
                             .foregroundStyle(pulse.testsOK == false ? Theme.red : Theme.green)
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -706,7 +705,6 @@ struct DeckChip: View {
             .overlay(Capsule().stroke(Theme.line))
         }
         .buttonStyle(DeckPress())
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("\(entry.agent.agentName): \(entry.agent.title). \(entry.aura.label). Settled."))
         .accessibilityIdentifier("deck.chip.\(entry.agent.id)")
     }
@@ -754,6 +752,7 @@ struct PhoneDeck: View {
                                     }
                                 }
                                 .scrollTargetLayout()
+                                .padding(.vertical, 10)   // room for the aura border and glow
                             }
                             .scrollTargetBehavior(.viewAligned)
                             .scrollPosition(id: $page)
