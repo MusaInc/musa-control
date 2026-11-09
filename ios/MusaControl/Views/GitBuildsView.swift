@@ -48,8 +48,15 @@ struct GitBuildsView: View {
             }
         }
         .background(Theme.bg)
-        .onAppear { if project == nil { project = app.workspaceProject.flatMap { id in gitProjects.contains { $0.id == id } ? id : nil } ?? gitProjects.first?.id } }
+        .onAppear { pickDefault() }
+        .onChange(of: app.projects.count) { _, _ in pickDefault() }
         .onChange(of: project) { _, id in if let p = app.project(id), p.github == nil, tab == "ci" || tab == "prs" { tab = "changes" } }
+    }
+
+    /// The current workspace's repo, else the first; also once projects load late.
+    func pickDefault() {
+        guard project == nil else { return }
+        project = app.workspaceProject.flatMap { id in gitProjects.contains { $0.id == id } ? id : nil } ?? gitProjects.first?.id
     }
 
     func tabs(_ p: Project) -> [(value: String, title: String)] {

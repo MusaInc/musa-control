@@ -52,6 +52,7 @@ struct StudioHeader: View {
     let agent: Agent?
     let director: StudioDirector
     @Environment(AppModel.self) private var app
+    @Environment(\.compactLayout) private var compact
 
     var status: String { agent?.status ?? "ended" }
     var thinking: Bool { !director.busy && status == "working" }
@@ -77,15 +78,15 @@ struct StudioHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            AgentAvatar(kind: agent?.agent ?? "claude", status: status, size: 42)
+            AgentAvatar(kind: agent?.agent ?? "claude", status: status, size: compact ? 34 : 42)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     if let p = app.project(agent?.project) {
-                        Text(p.name).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.accent)
+                        Text(p.name).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.accent).lineLimit(1)
                         Text("·").foregroundStyle(Theme.textFaint)
                     }
-                    Text(agent?.agentName ?? "Agent").font(.system(size: 12.5)).foregroundStyle(Theme.textDim)
-                    LivePill(mode: director.mode, status: status)
+                    Text(agent?.agentName ?? "Agent").font(.system(size: 12.5)).foregroundStyle(Theme.textDim).lineLimit(1).fixedSize()
+                    if !compact { LivePill(mode: director.mode, status: status) }
                 }
                 Text(agent?.title ?? "Agent session").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                 HStack(spacing: 6) {
@@ -101,10 +102,13 @@ struct StudioHeader: View {
                 }
                 .animation(.snappy(duration: 0.25), value: captionText)
             }
-            Spacer(minLength: 8)
-            ViewThatFits(in: .horizontal) {
-                stats
-                EmptyView()
+            .layoutPriority(1)
+            Spacer(minLength: compact ? 4 : 8)
+            if !compact {
+                ViewThatFits(in: .horizontal) {
+                    stats
+                    EmptyView()
+                }
             }
             buttons.fixedSize()
                 .layoutPriority(2)
