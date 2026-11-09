@@ -29,6 +29,9 @@ on:
         description: "Run the UI tests (screenshots of every section)"
         type: boolean
         default: true
+      ui_only:
+        description: "Only these UI tests, comma-separated Class/test (e.g. MusaControlUITests/testCommandDeck); empty = all"
+        default: ""
       runner:
         description: "macOS runner image (macos-15-intel if arm64 capacity is short)"
         default: "macos-15"
@@ -99,18 +102,32 @@ jobs:
       - name: UI tests (screenshots of every section, landscape + portrait)
         if: github.event_name != 'workflow_dispatch' || inputs.ui_tests
         continue-on-error: true
+        env: { ONLY: "${{ inputs.ui_only }}" }
         run: |
+          sel=(-only-testing:MusaControlUITests -skip-testing:MusaControlUITests/MusaControlPhoneUITests)
+          if [ -n "$ONLY" ]; then
+            sel=(); IFS=',' read -ra T <<< "$ONLY"
+            for t in "${T[@]}"; do t=$(echo "$t" | xargs); case "$t" in MusaControlUITests/*) sel+=("-only-testing:MusaControlUITests/$t");; esac; done
+            [ ${#sel[@]} -gt 0 ] || { echo "No iPad UI tests selected"; exit 0; }
+          fi
           xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation -skipMacroValidation \
-            -destination "id=$SIM" -only-testing:MusaControlUITests -skip-testing:MusaControlUITests/MusaControlPhoneUITests \
+            -destination "id=$SIM" "${sel[@]}" \
             -resultBundlePath build/ui.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/ui.log \
             | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 300'
 
       - name: iPhone UI tests (tab bar, list → detail navigation, every section)
         if: github.event_name != 'workflow_dispatch' || inputs.ui_tests
         continue-on-error: true
+        env: { ONLY: "${{ inputs.ui_only }}" }
         run: |
+          sel=(-only-testing:MusaControlUITests/MusaControlPhoneUITests)
+          if [ -n "$ONLY" ]; then
+            sel=(); IFS=',' read -ra T <<< "$ONLY"
+            for t in "${T[@]}"; do t=$(echo "$t" | xargs); case "$t" in MusaControlPhoneUITests/*) sel+=("-only-testing:MusaControlUITests/$t");; esac; done
+            [ ${#sel[@]} -gt 0 ] || { echo "No iPhone UI tests selected"; exit 0; }
+          fi
           xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation -skipMacroValidation \
-            -destination "id=$PHONE" -only-testing:MusaControlUITests/MusaControlPhoneUITests \
+            -destination "id=$PHONE" "${sel[@]}" \
             -resultBundlePath build/phone.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/phone.log \
             | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 300'
 
