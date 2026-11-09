@@ -51,6 +51,32 @@ enum Theme {
     static let title = Font.system(size: 16, weight: .semibold)
     static let radius: CGFloat = 10
 
+    // Command Deck / studio stage. The "ink" surfaces are the dark miniature
+    // stages inside tiles (same soft charcoal as terminals, never black).
+    static let ink = Color(terminalBg)
+    static let inkRaised = Color(red: 0.165, green: 0.169, blue: 0.184)
+    static let inkText = Color(terminalFg)
+    static let inkDim = Color(red: 0.62, green: 0.63, blue: 0.66)
+    static let inkLine = Color(red: 1, green: 1, blue: 1, opacity: 0.08)
+    static let shadow = dyn((0.24, 0.20, 0.14), (0.0, 0.0, 0.0), alpha: 0.22)   // warm in light mode
+    static let scrim = dyn((0.16, 0.14, 0.11), (0.05, 0.05, 0.06), alpha: 0.38)
+    /// Ambient field strokes: barely-there in light mode, a little brighter in dark.
+    static let field = dyn((0.690, 0.431, 0.098), (0.937, 0.761, 0.506), alpha: 0.9)
+    static let fieldCool = dyn((0.153, 0.420, 0.800), (0.502, 0.698, 0.973), alpha: 0.9)
+
+    /// One colour per aura so every surface (tile border, chip dot, heartbeat)
+    /// agrees on what a state looks like.
+    static func aura(_ a: DeckAura) -> Color {
+        switch a {
+        case .working: return blue
+        case .thinking: return purple
+        case .approval: return yellow
+        case .failed: return red
+        case .done: return green
+        case .resting: return textFaint
+        }
+    }
+
     static func status(_ s: String) -> Color {
         switch s {
         case "approval": return yellow

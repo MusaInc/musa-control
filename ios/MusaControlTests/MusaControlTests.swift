@@ -208,3 +208,187 @@ final class StudioEditScriptTests: XCTestCase {
         XCTAssertEqual(apply(s), text.components(separatedBy: "\n"))
     }
 }
+
+// MARK: - Command Deck
+
+final class DeckLayoutTests: XCTestCase {
+    func assertTiles(_ rects: [CGRect], fill area: CGRect, file: StaticString = #filePath, line: UInt = #line) {
+        let total = rects.reduce(0) { $0 + $1.width * $1.height }
+        XCTAssertEqual(total, area.width * area.height, accuracy: 1, "area conserved", file: file, line: line)
+        for (i, a) in rects.enumerated() {
+            XCTAssertTrue(area.insetBy(dx: -0.5, dy: -0.5).contains(a), "inside bounds", file: file, line: line)
+            for b in rects[(i + 1)...] {
+                let o = a.intersection(b)
+                XCTAssertTrue(o.isNull || o.width * o.height < 1, "no overlap", file: file, line: line)
+            }
+        }
+    }
+
+    func testSquarifyConservesAreaWithoutOverlap() {
+        let area = CGRect(x: 0, y: 0, width: 1100, height: 760)
+        for weights in [[3.2, 1.3, 1.3, 1.0, 0.5, 0.5], [1.0], [2.0, 1.0], [1, 1, 1, 1, 1, 1, 1, 1, 1].map(Double.init)] {
+            let r = DeckLayout.squarify(weights, in: area)
+            XCTAssertEqual(r.count, weights.count)
+            assertTiles(r, fill: area)
+            // Proportional to weight.
+            let total = weights.reduce(0, +)
+            for (w, rect) in zip(weights, r) {
+                XCTAssertEqual(rect.width * rect.height / (area.width * area.height), w / total, accuracy: 0.002)
+            }
+        }
+    }
+
+    func testSquarifyKeepsTilesNearSquare() {
+        let r = DeckLayout.squarify([1, 1, 1, 1].map(Double.init), in: CGRect(x: 0, y: 0, width: 1000, height: 1000))
+        for t in r { XCTAssertLessThan(max(t.width / t.height, t.height / t.width), 2.01) }
+    }
+
+    func testApprovalTakesTheHeroSpotAndChipsSettleAtTheBottom() {
+        let items = [
+            DeckItem(id: "work", weight: 1.3, chip: false),
+            DeckItem(id: "ask", weight: 3.2, chip: false),
+            DeckItem(id: "idle", weight: 0.5, chip: false),
+            DeckItem(id: "old", weight: 0.5, chip: true),
+        ]
+        let size = CGSize(width: 1100, height: 760)
+        let p = DeckLayout.solve(items, in: size)
+        let by = Dictionary(uniqueKeysWithValues: p.map { ($0.id, $0) })
+        XCTAssertEqual(by["ask"]?.role, .hero)
+        XCTAssertEqual(by["ask"]?.rect.origin, .zero, "most urgent sits top-left")
+        XCTAssertEqual(by["old"]?.role, .chip)
+        XCTAssertEqual(by["old"]!.rect.maxY, size.height, accuracy: 0.5)
+        for t in p where t.role != .chip { XCTAssertLessThan(t.rect.maxY, by["old"]!.rect.minY, "tiles stay above the chips") }
+        XCTAssertGreaterThan(by["work"]!.rect.width * by["work"]!.rect.height, by["idle"]!.rect.width * by["idle"]!.rect.height, "busier is bigger")
+    }
+
+    func testOverflowBecomesChipsAndTinyTilesGoCompact() {
+        let items = (0..<12).map { DeckItem(id: "a\($0)", weight: 1, chip: false) }
+        let p = DeckLayout.solve(items, in: CGSize(width: 700, height: 500))
+        XCTAssertEqual(p.filter { $0.role != .chip }.count, DeckLayout.maxTiles)
+        XCTAssertTrue(p.contains { $0.role == .chip })
+        XCTAssertTrue(p.filter { $0.role != .chip }.allSatisfy { $0.role == .compact }, "nine tiles in 700×450 are compact")
+    }
+
+    func testLayoutIsStableForEqualWeights() {
+        let items = [DeckItem(id: "b", weight: 1, chip: false), DeckItem(id: "a", weight: 1, chip: false)]
+        let s = CGSize(width: 900, height: 600)
+        XCTAssertEqual(DeckLayout.solve(items, in: s), DeckLayout.solve(items, in: s))
+        XCTAssertEqual(DeckLayout.solve(items, in: s).first?.id, "b", "input order breaks ties")
+    }
+}
+
+final class DeckPulseTests: XCTestCase {
+    func ev(_ ts: Double, _ kind: String, _ detail: [String: JSONValue] = [:], title: String = "t") -> TimelineEvent {
+        TimelineEvent(id: Int(ts), ts: ts, kind: kind, project: "p", session: "s", title: title, detail: .object(detail), notify: 0)
+    }
+
+    func testEditShowsTheLinesItWrote() {
+        var p = AgentPulse()
+        p.apply(ev(1, "agent.edit", ["path": .string("/x/a.swift"), "tool": .string("Edit"),
+                                       "edits": .array([.object(["old": .string("let a = 1\n    return a"), "new": .string("let a = 2\n    return a")])])]))
+        XCTAssertEqual(p.file, "/x/a.swift")
+        XCTAssertEqual(p.verb, .editing)
+        XCTAssertEqual(p.snippet, ["let a = 2"])
+        XCTAssertEqual(p.added, 1)
+        XCTAssertEqual(p.removed, 1)
+    }
+
+    func testDiffEditTakesFirstAddedRunWithoutCommonIndent() {
+        var p = AgentPulse()
+        p.apply(ev(1, "agent.edit", ["path": .string("/x/m.gd"), "change": .string("update"),
+                                       "diff": .string("@@ -1,2 +1,3 @@\n func f():\n-\treturn 1\n+\tvar x := 2\n+\treturn x\n")]))
+        XCTAssertEqual(p.snippet, ["var x := 2", "return x"])
+        XCTAssertEqual(p.added, 2)
+        XCTAssertEqual(p.removed, 1)
+    }
+
+    func testNothingInventedWhenTheEventHasNoText() {
+        var p = AgentPulse()
+        p.apply(ev(1, "agent.edit", ["path": .string("/x/new.swift"), "tool": .string("Write")]))
+        XCTAssertEqual(p.verb, .writing)
+        XCTAssertTrue(p.snippet.isEmpty)
+        XCTAssertNil(p.term)
+        XCTAssertNil(p.tests)
+    }
+
+    func testCommandsAndResults() {
+        var p = AgentPulse()
+        p.apply(ev(1, "agent.command", ["command": .string("npm test")]))
+        XCTAssertEqual(p.term, "$ npm test")
+        XCTAssertEqual(p.termKind, .command)
+        p.apply(ev(2, "agent.command_failed", ["command": .string("npm test"), "output": .string("a\n\n3 passed, 1 failed\n"), "test": .bool(true)]))
+        XCTAssertEqual(p.term, "3 passed, 1 failed")
+        XCTAssertEqual(p.termKind, .fail)
+        XCTAssertEqual(p.tests, "3 passed, 1 failed")
+        XCTAssertEqual(p.testsOK, false)
+        XCTAssertEqual(p.failTs, 2)
+        // Codex reports the whole command at once, with its exit code.
+        p.apply(ev(3, "agent.test", ["command": .string("npm test"), "exitCode": .number(0), "output": .string("4 passed")]))
+        XCTAssertEqual(p.termKind, .ok)
+        XCTAssertEqual(p.testsOK, true)
+        XCTAssertEqual(p.okTs, 3)
+    }
+
+    func testLateEventsCountButDontOverwrite() {
+        var p = AgentPulse()
+        p.apply(ev(10, "agent.read", ["path": .string("/x/new.swift")]))
+        p.apply(ev(5, "agent.read", ["path": .string("/x/old.swift")]))
+        XCTAssertEqual(p.file, "/x/new.swift")
+        XCTAssertEqual(p.events, 2)
+        XCTAssertEqual(p.rate(now: 60), 2)
+    }
+
+    func testPlanProgress() {
+        var p = AgentPulse()
+        p.apply(ev(1, "agent.plan", ["items": .array([
+            .object(["text": .string("a"), "status": .string("completed")]),
+            .object(["text": .string("b"), "status": .string("in_progress")]),
+            .object(["text": .string("c"), "status": .string("pending")])])]))
+        XCTAssertEqual(p.planDone, 1)
+        XCTAssertEqual(p.planTotal, 3)
+        XCTAssertEqual(p.planCurrent, "b")
+    }
+
+    func testAuras() {
+        let now = 1_000_000.0
+        var p = AgentPulse()
+        p.apply(ev(now - 5_000, "agent.read", ["path": .string("/a")]))
+        XCTAssertEqual(AgentPulse.aura(status: "working", pulse: p, now: now), .working)
+        XCTAssertEqual(AgentPulse.aura(status: "working", pulse: p, now: now + 60_000), .thinking, "quiet for a while: thinking")
+        XCTAssertEqual(AgentPulse.aura(status: "approval", pulse: p, now: now), .approval)
+        p.apply(ev(now - 1_000, "agent.command_failed", ["command": .string("make")]))
+        XCTAssertEqual(AgentPulse.aura(status: "working", pulse: p, now: now), .failed)
+        p.apply(ev(now, "agent.command_done", ["command": .string("make"), "ok": .bool(true)]))
+        XCTAssertEqual(AgentPulse.aura(status: "working", pulse: p, now: now), .working, "a pass clears the failure")
+        p.apply(ev(now + 1, "agent.done"))
+        XCTAssertEqual(AgentPulse.aura(status: "idle", pulse: p, now: now + 2), .done)
+        XCTAssertEqual(AgentPulse.aura(status: "idle", pulse: p, now: now + 3_600_000), .resting)
+    }
+
+    func agent(_ id: String, _ status: String, live: Bool = true, last: Double = 0) -> Agent {
+        Agent(id: id, agent: "claude", agentName: "Claude Code", sessionId: nil, project: "p", projectInferred: nil, cwd: nil, title: id,
+              lastPrompt: nil, lastMessage: nil, status: status, statusText: "", lastActivity: last, startedAt: nil, model: nil,
+              pid: live ? 1 : nil, mode: nil, tmux: nil, managed: nil, controllable: true, approval: nil, counts: nil, lastEvent: nil)
+    }
+
+    func testEntriesOrderUrgentFirstAndSettleEndedAgents() {
+        let now = 100_000_000_000.0
+        var busy = AgentPulse()
+        for i in 0..<12 { busy.apply(ev(now - Double(i) * 1000, "agent.read", ["path": .string("/a")])) }
+        let es = DeckEntry.build(agents: [agent("idle", "idle"), agent("busy", "working"), agent("ask", "approval"),
+                                          agent("gone", "ended", live: false, last: now - 60_000), agent("ancient", "ended", live: false, last: 0)],
+                                 pulses: ["busy": busy], now: now)
+        XCTAssertEqual(es.map(\.id), ["ask", "busy", "idle", "gone"], "ancient sessions are dropped")
+        XCTAssertTrue(es.last!.chip)
+        XCTAssertEqual(es[1].rate, 12)
+        XCTAssertGreaterThan(es[1].weight, DeckEntry(agent: agent("q", "working"), pulse: AgentPulse(), aura: .working, rate: 0, chip: false).weight)
+    }
+
+    func testFixtureTimesAreRebasedToNow() throws {
+        let json = #"{"ts": 1794085331848, "mtime": 1794007276402.0845, "id": 9001}"#
+        let out = String(decoding: FixtureTransport.rebased(Data(json.utf8), now: 2_000_000_000_000), as: UTF8.self)
+        XCTAssertTrue(out.contains(#""ts": 2000000000000"#), out)
+        XCTAssertTrue(out.contains(#""mtime": 1999921944554.0845"#), out)
+        XCTAssertTrue(out.contains(#""id": 9001"#))
+    }
+}

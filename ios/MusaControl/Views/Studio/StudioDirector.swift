@@ -412,7 +412,7 @@ final class StudioDirector {
 
     // MARK: Scenes
 
-    static func isScene(_ e: TimelineEvent) -> Bool {
+    nonisolated static func isScene(_ e: TimelineEvent) -> Bool {
         ["agent.edit", "agent.read", "agent.command", "agent.test", "agent.command_done", "agent.command_failed",
          "agent.message", "agent.plan", "agent.image", "agent.prompt", "agent.tool"].contains(e.kind)
     }
@@ -814,11 +814,11 @@ final class StudioDirector {
         if term.count > 120 { term.removeFirst(term.count - 120) }
     }
 
-    static func oneLine(_ s: String, _ n: Int) -> String {
+    nonisolated static func oneLine(_ s: String, _ n: Int) -> String {
         let t = s.replacingOccurrences(of: "\n", with: " ⏎ ").replacingOccurrences(of: "\t", with: " ")
         return t.count > n ? String(t.prefix(n - 1)) + "…" : t
     }
-    static func stripAnsi(_ s: String) -> String {
+    nonisolated static func stripAnsi(_ s: String) -> String {
         s.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[A-Za-z]", with: "", options: .regularExpression)
     }
 
@@ -896,7 +896,7 @@ final class StudioDirector {
 
     // Thinking, plan, pictures, instructions, tools
 
-    static func plainText(_ s: String, _ n: Int) -> String {
+    nonisolated static func plainText(_ s: String, _ n: Int) -> String {
         var t = s.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
         t = t.replacingOccurrences(of: "(?m)^#+\\s*", with: "", options: .regularExpression)
         t = t.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -923,7 +923,7 @@ final class StudioDirector {
         await wait(0.7)
     }
 
-    static func planSteps(_ e: TimelineEvent) -> [PlanStep] {
+    nonisolated static func planSteps(_ e: TimelineEvent) -> [PlanStep] {
         (e.detail?["items"]?.array ?? []).enumerated().compactMap { i, v in
             guard let t = v["text"]?.string else { return nil }
             return PlanStep(id: i, text: t, status: v["status"]?.string ?? "pending")
