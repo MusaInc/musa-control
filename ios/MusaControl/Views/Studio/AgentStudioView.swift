@@ -1013,8 +1013,9 @@ struct AgentAvatar: View {
 struct TypingDots: View {
     var color: Color = Theme.textDim
     var size: CGFloat = 4
+    @Environment(\.stageAnimates) private var animates
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { ctx in
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !animates)) { ctx in
             let t = ctx.date.timeIntervalSinceReferenceDate
             HStack(spacing: size * 0.7) {
                 ForEach(0..<3, id: \.self) { i in
