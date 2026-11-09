@@ -4,6 +4,7 @@ import SwiftUI
 /// event stream — no placeholder numbers.
 struct HomeView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.compactLayout) private var compact
     @State private var shot: Screenshot?
 
     var body: some View {
@@ -49,13 +50,17 @@ struct HomeView: View {
             }
             Spacer()
             Button { app.showSwitcher = true } label: {
-                Label("Jump to…", systemImage: "magnifyingglass").font(Theme.label).padding(.horizontal, 10).frame(height: 32)
+                Label("Jump to…", systemImage: "magnifyingglass").font(Theme.label)
+                    .labelStyle(CompactLabelStyle(iconOnly: compact))
+                    .padding(.horizontal, compact ? 0 : 10).frame(minWidth: 36).frame(height: compact ? 36 : 32)
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
-            }.buttonStyle(.plain).keyboardShortcut("k", modifiers: .command)
+            }.buttonStyle(.plain).keyboardShortcut("k", modifiers: .command).accessibilityLabel(Text("Jump to"))
             Button { app.launcherProject = nil; app.showLauncher = true } label: {
-                Label("New task", systemImage: "plus").font(Theme.label).padding(.horizontal, 12).frame(height: 32)
+                Label("New task", systemImage: "plus").font(Theme.label)
+                    .labelStyle(CompactLabelStyle(iconOnly: compact))
+                    .padding(.horizontal, compact ? 0 : 12).frame(minWidth: 36).frame(height: compact ? 36 : 32)
                     .background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.onAccent)
-            }.buttonStyle(.plain).accessibilityIdentifier("home.newTask")
+            }.buttonStyle(.plain).accessibilityLabel(Text("New task")).accessibilityIdentifier("home.newTask")
         }
     }
 
@@ -79,17 +84,23 @@ struct HomeView: View {
 struct HealthStrip: View {
     let system: SystemSummary
     @State private var expanded = false
+    @Environment(\.compactLayout) private var compact
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 18) {
-                HStack(spacing: 6) { StatusDot(status: system.healthy ? "idle" : "failed"); Text(system.healthy ? "Server healthy" : "Server needs attention").font(Theme.label) }
-                metric("Load", String(format: "%.2f", system.load.first ?? 0), sub: "\(system.cpus) CPU", warn: (system.load.first ?? 0) > Double(system.cpus))
-                metric("Memory", "\(Int((1 - system.memory.available / max(system.memory.total, 1)) * 100))%", sub: Fmt.bytes(system.memory.available) + " free", warn: system.memory.available / max(system.memory.total, 1) < 0.1)
-                metric("Disk", "\(Int(system.disk.used / max(system.disk.size, 1) * 100))%", sub: Fmt.bytes(system.disk.available) + " free", warn: system.disk.used / max(system.disk.size, 1) > 0.9)
-                metric("Services", "\(system.services.filter { $0.active == "active" }.count)/\(system.services.count)", sub: "running", warn: system.services.contains { $0.active == "failed" })
-                metric("Uptime", Fmt.duration(system.uptime), sub: "", warn: false)
-                Spacer()
-                IconButton(systemName: expanded ? "chevron.up" : "chevron.down", help: "Services") { withAnimation { expanded.toggle() } }
+            if compact {
+                HStack(spacing: 6) {
+                    StatusDot(status: system.healthy ? "idle" : "failed"); Text(system.healthy ? "Server healthy" : "Server needs attention").font(Theme.label)
+                    Spacer()
+                    IconButton(systemName: expanded ? "chevron.up" : "chevron.down", help: "Services") { withAnimation { expanded.toggle() } }
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 98), spacing: 10, alignment: .leading)], alignment: .leading, spacing: 10) { metrics }
+            } else {
+                HStack(spacing: 18) {
+                    HStack(spacing: 6) { StatusDot(status: system.healthy ? "idle" : "failed"); Text(system.healthy ? "Server healthy" : "Server needs attention").font(Theme.label) }
+                    metrics
+                    Spacer()
+                    IconButton(systemName: expanded ? "chevron.up" : "chevron.down", help: "Services") { withAnimation { expanded.toggle() } }
+                }
             }
             ForEach(system.issues, id: \.self) { i in Label(i, systemImage: "exclamationmark.triangle.fill").font(Theme.caption).foregroundStyle(Theme.yellow) }
             if expanded {
@@ -101,6 +112,13 @@ struct HealthStrip: View {
             }
         }
         .card()
+    }
+    @ViewBuilder var metrics: some View {
+        metric("Load", String(format: "%.2f", system.load.first ?? 0), sub: "\(system.cpus) CPU", warn: (system.load.first ?? 0) > Double(system.cpus))
+        metric("Memory", "\(Int((1 - system.memory.available / max(system.memory.total, 1)) * 100))%", sub: Fmt.bytes(system.memory.available) + " free", warn: system.memory.available / max(system.memory.total, 1) < 0.1)
+        metric("Disk", "\(Int(system.disk.used / max(system.disk.size, 1) * 100))%", sub: Fmt.bytes(system.disk.available) + " free", warn: system.disk.used / max(system.disk.size, 1) > 0.9)
+        metric("Services", "\(system.services.filter { $0.active == "active" }.count)/\(system.services.count)", sub: "running", warn: system.services.contains { $0.active == "failed" })
+        metric("Uptime", Fmt.duration(system.uptime), sub: "", warn: false)
     }
     func metric(_ label: String, _ value: String, sub: String, warn: Bool) -> some View {
         VStack(alignment: .leading, spacing: 1) {

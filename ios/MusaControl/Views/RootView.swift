@@ -14,6 +14,8 @@ struct RootView: View {
         Group {
             if app.phase == .unpaired {
                 PairingView()
+            } else if Device.isPhone {
+                PhoneShell()
             } else {
                 GeometryReader { geo in
                     let compact = geo.size.width < 700
@@ -25,24 +27,12 @@ struct RootView: View {
                             Rectangle().fill(Theme.line).frame(width: 1).ignoresSafeArea()
                             VStack(spacing: 0) {
                                 if case .offline(let msg) = app.phase { OfflineBar(message: msg) }
-                                detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+                                SectionDetail().frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .environment(\.compactLayout, geo.size.width - (full ? 237 : 65) < 600)
                             }
                             .background(Theme.bg)
                         }
-                        if compact && app.sidebarOverlay {
-                            Color.black.opacity(0.22).ignoresSafeArea()
-                                .onTapGesture { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
-                                .accessibilityLabel(Text("Close sidebar"))
-                                .transition(.opacity)
-                            Sidebar(style: .full, compact: true)
-                                .frame(width: min(300, geo.size.width - 48))
-                                .background(Theme.surface)
-                                .shadow(color: .black.opacity(0.18), radius: 18, x: 4)
-                                .transition(.move(edge: .leading))
-                                .gesture(DragGesture(minimumDistance: 24).onEnded { v in
-                                    if v.translation.width < -50 { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
-                                })
-                        }
+                        if compact && app.sidebarOverlay { SidebarOverlay(width: geo.size.width) }
                     }
                     // Swipe in from the left edge to show the full sidebar.
                     .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { v in
@@ -59,25 +49,48 @@ struct RootView: View {
         .sheet(isPresented: $app.showLauncher) { AgentLauncher(initialProject: app.launcherProject) }
         .sheet(isPresented: $app.showSwitcher) { QuickSwitcher() }
     }
+}
 
-    @ViewBuilder private var detail: some View {
+/// The selected section, or an agent's live studio over it.
+struct SectionDetail: View {
+    @Environment(AppModel.self) private var app
+    var body: some View {
         if let id = app.studioAgent {
             AgentStudioView(agentId: id).id(id)
         } else {
-            sectionView
+            switch app.section {
+            case .home: HomeView()
+            case .workspaces: WorkspacesView()
+            case .agents: AgentsView()
+            case .terminal: TerminalSectionView()
+            case .files: FilesSectionView()
+            case .visuals: VisualsView()
+            case .git: GitBuildsView()
+            case .settings: SettingsView()
+            }
         }
     }
+}
 
-    @ViewBuilder private var sectionView: some View {
-        switch app.section {
-        case .home: HomeView()
-        case .workspaces: WorkspacesView()
-        case .agents: AgentsView()
-        case .terminal: TerminalSectionView()
-        case .files: FilesSectionView()
-        case .visuals: VisualsView()
-        case .git: GitBuildsView()
-        case .settings: SettingsView()
+/// The full sidebar drawn over the content (narrow iPad windows, and the
+/// iPhone's More tab). Closes on a tap outside, a swipe left or navigating.
+struct SidebarOverlay: View {
+    let width: CGFloat
+    @Environment(AppModel.self) private var app
+    var body: some View {
+        ZStack(alignment: .leading) {
+        Color.black.opacity(0.22).ignoresSafeArea()
+            .onTapGesture { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
+            .accessibilityLabel(Text("Close sidebar"))
+            .transition(.opacity)
+        Sidebar(style: .full, compact: true)
+            .frame(width: min(300, width - 48))
+            .background(Theme.surface.ignoresSafeArea())
+            .shadow(color: .black.opacity(0.18), radius: 18, x: 4)
+            .transition(.move(edge: .leading))
+            .gesture(DragGesture(minimumDistance: 24).onEnded { v in
+                if v.translation.width < -50 { withAnimation(.snappy(duration: 0.22)) { app.sidebarOverlay = false } }
+            })
         }
     }
 }

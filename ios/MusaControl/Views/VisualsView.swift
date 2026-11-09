@@ -5,19 +5,20 @@ import AVFoundation
 
 struct VisualsView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.compactLayout) private var compact
     @State private var tab = UserDefaults.standard.string(forKey: "visuals.tab") ?? "follow"
     @State private var project: String?
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Picker("", selection: $tab) {
+                Picker(compact ? "View" : "", selection: $tab) {
                     Label("Follow Agent", systemImage: "scope").tag("follow")
                     Label("Remote Desktop", systemImage: "display").tag("vnc")
                     Label("Screenshots", systemImage: "photo.on.rectangle").tag("shots")
                     Label("Previews", systemImage: "safari").tag("preview")
                 }
-                .pickerStyle(.segmented).frame(maxWidth: 560)
+                .modifier(VisualsPickerStyle(compact: compact))
                 Spacer()
                 if tab == "shots" || tab == "preview" { ProjectPicker(selection: $project) }
             }
@@ -42,6 +43,7 @@ struct VisualsView: View {
 // MARK: - Remote desktop
 
 struct RemoteDesktopPanel: View {
+    @Environment(\.compactLayout) private var compact
     let initialDisplay: String
     var compact = false
     @Environment(AppModel.self) private var app
@@ -109,13 +111,13 @@ struct RemoteDesktopPanel: View {
                 Label("Observe", systemImage: "eye").tag("observe")
                 Label("Control", systemImage: "cursorarrow.click.2").tag("control")
             }
-            .pickerStyle(.segmented).frame(width: 220)
+            .pickerStyle(.segmented).frame(width: compact ? 150 : 220)
             Text(displays.first { $0.display == display }?.controlledBy ?? "").font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             Spacer()
             IconButton(systemName: "arrow.clockwise", help: "Reconnect") { controller?.reconnect() }
             IconButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Full screen") { fullscreen = true }
         }
-        .padding(.horizontal, 10).frame(height: 40).background(Theme.raised)
+        .padding(.horizontal, 10).scrollsWhenCompact(compact).frame(height: 40).background(Theme.raised)
     }
 
     func stats(_ c: VNCController) -> some View {
@@ -317,7 +319,7 @@ struct CompareView: View {
                 Text("Compare").font(Theme.title)
                 Text("\(a.name) → \(b.name)").font(Theme.caption).foregroundStyle(Theme.textDim).lineLimit(1)
                 Spacer()
-                Picker("", selection: $mode) { Text("Slider").tag("slider"); Text("Side by side").tag("side") }.pickerStyle(.segmented).frame(width: 220)
+                Picker("", selection: $mode) { Text("Slider").tag("slider"); Text("Side by side").tag("side") }.pickerStyle(.segmented).frame(width: Device.isPhone ? 170 : 220)
                 IconButton(systemName: "xmark", help: "Close") { dismiss() }
             }
             .padding(10).background(Theme.raised)
@@ -346,6 +348,7 @@ struct CompareView: View {
 // MARK: - Live preview
 
 struct PreviewPanel: View {
+    @Environment(\.compactLayout) private var compact
     let projectId: String
     @Environment(AppModel.self) private var app
     @State private var sources: PreviewsResponse?
@@ -382,7 +385,7 @@ struct PreviewPanel: View {
                 IconButton(systemName: showConsole ? "terminal.fill" : "terminal", help: "Console") { showConsole.toggle() }
                 IconButton(systemName: "arrow.clockwise", help: "Reload (⌘R)") { controller.reload() }.keyboardShortcut("r", modifiers: .command)
             }
-            .padding(.horizontal, 10).frame(height: 38).background(Theme.raised)
+            .padding(.horizontal, 10).scrollsWhenCompact(compact).frame(height: 38).background(Theme.raised)
             if let src = current {
                 GeometryReader { g in
                     ZStack {
@@ -416,5 +419,13 @@ struct PreviewPanel: View {
                 status = "Captured \(name) — it's in Screenshots."
             } catch { status = error.localizedDescription }
         }
+    }
+}
+
+/// Segmented on wide layouts; a menu where four labelled segments won't fit.
+struct VisualsPickerStyle: ViewModifier {
+    let compact: Bool
+    func body(content: Content) -> some View {
+        if compact { content.pickerStyle(.menu).font(Theme.label) } else { content.pickerStyle(.segmented).frame(maxWidth: 560) }
     }
 }

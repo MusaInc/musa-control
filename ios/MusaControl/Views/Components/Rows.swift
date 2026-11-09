@@ -121,8 +121,9 @@ struct ApprovalCard: View {
             defer { busy = nil }
             do {
                 _ = try await app.client.send("POST", "/api/agents/\(agent.id.pathSegment)/approval", ["signature": prompt.signature, "option": o.index], as: [String: JSONValue].self)
+                Device.notify(.success)
                 await app.refreshAgents()
-            } catch { self.error = error.localizedDescription; await app.refreshAgents() }
+            } catch { self.error = error.localizedDescription; Device.notify(.error); await app.refreshAgents() }
         }
     }
 }

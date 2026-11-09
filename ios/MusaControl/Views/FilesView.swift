@@ -12,29 +12,44 @@ final class FilesState {
     var openPath: [String: String] = (UserDefaults.standard.dictionary(forKey: "files.open") as? [String: String]) ?? [:]
     var browsePath: [String: String] = [:]
     var jumpLine: Int?
+    var unsaved: Set<String> = []          // projects whose open file has unsaved edits
     func open(project: String, path: String, line: Int? = nil) {
         openPath[project] = path
         browsePath[project] = (path as NSString).deletingLastPathComponent
         jumpLine = line
         UserDefaults.standard.set(openPath, forKey: "files.open")
     }
+    func close(project: String) {
+        openPath[project] = nil
+        unsaved.remove(project)
+        UserDefaults.standard.set(openPath, forKey: "files.open")
+    }
 }
 
 struct FilesSectionView: View {
     @Environment(AppModel.self) private var app
+    @State private var files = FilesState.shared
+    @State private var confirmClose: String?
     var body: some View {
         @Bindable var app = app
         VStack(spacing: 0) {
             HStack { ProjectPicker(selection: $app.filesProject); Spacer() }.padding(8).background(Theme.raised)
             if let p = app.filesProject {
-                HStack(spacing: 0) {
-                    FileBrowser(projectId: p).frame(width: 300)
-                    Divider().overlay(Theme.line)
+                // Phone: the browser, then the open file full screen with Back.
+                AdaptiveSplit(masterWidth: 300, showingDetail: files.openPath[p] != nil, backTitle: "Files",
+                              onBack: {
+                    if files.unsaved.contains(p) { confirmClose = p } else { withAnimation(.snappy(duration: 0.22)) { files.close(project: p) } }
+                }) {
+                    FileBrowser(projectId: p)
+                } detail: {
                     FileViewerPanel(projectId: p)
                 }
             } else { EmptyNote(icon: "folder", text: "Choose a project") }
         }
         .background(Theme.bg)
+        .confirmationDialog("Discard unsaved changes?", isPresented: Binding(get: { confirmClose != nil }, set: { if !$0 { confirmClose = nil } }), titleVisibility: .visible) {
+            Button("Discard changes", role: .destructive) { if let p = confirmClose { withAnimation(.snappy(duration: 0.22)) { files.close(project: p) } } }
+        } message: { Text("Your edits to this file haven't been saved to the server.") }
         .onAppear { if app.filesProject == nil { app.filesProject = app.workspaceProject ?? app.projects.first?.id } }
         .onChange(of: app.projects.count) { _, _ in if app.filesProject == nil { app.filesProject = app.workspaceProject ?? app.projects.first?.id } }
     }
@@ -222,6 +237,7 @@ struct FileViewerPanel: View {
     @State private var status: String?
     @State private var changedOnServer = false
     @State private var follow = true
+    @Environment(\.compactLayout) private var compact
 
     var path: String? { files.openPath[projectId] }
     var dirty: Bool { content?.text != nil && text != content?.text }
@@ -230,6 +246,7 @@ struct FileViewerPanel: View {
         VStack(spacing: 0) {
             if let path {
                 header(path)
+                    .onChange(of: dirty) { _, d in if d { files.unsaved.insert(projectId) } else { files.unsaved.remove(projectId) } }
                 if changedOnServer {
                     HStack {
                         Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(Theme.blue)
@@ -272,18 +289,29 @@ struct FileViewerPanel: View {
     func header(_ path: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text").foregroundStyle(Theme.textDim)
-            Text(path).font(Theme.monoSmall).lineLimit(1).truncationMode(.head)
+            Text(compact ? (path as NSString).lastPathComponent : path).font(Theme.monoSmall).lineLimit(1).truncationMode(.head)
             if dirty { Circle().fill(Theme.accent).frame(width: 7, height: 7).help("Unsaved changes") }
             Spacer()
-            Picker("", selection: $mode) {
-                Text("Edit").tag("edit"); Text("View").tag("view"); Text("Changes").tag("diff"); Text("History").tag("history")
-            }.pickerStyle(.segmented).frame(width: 300)
-            Toggle(isOn: $follow) { Image(systemName: "dot.radiowaves.left.and.right") }.toggleStyle(.button).help("Reload automatically when an agent changes this file")
+            if compact {
+                Menu {
+                    Picker("Mode", selection: $mode) { ForEach(Self.modes, id: \.self) { m in Text(Self.modeTitle(m)).tag(m) } }
+                    Toggle(isOn: $follow) { Label("Reload when an agent changes it", systemImage: "dot.radiowaves.left.and.right") }
+                } label: {
+                    HStack(spacing: 3) { Text(Self.modeTitle(mode)).font(Theme.label); Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)) }
+                        .padding(.horizontal, 8).frame(height: 28).background(Theme.hover, in: RoundedRectangle(cornerRadius: 6))
+                }
+            } else {
+                Picker("", selection: $mode) { ForEach(Self.modes, id: \.self) { m in Text(Self.modeTitle(m)).tag(m) } }.pickerStyle(.segmented).frame(width: 300)
+                Toggle(isOn: $follow) { Image(systemName: "dot.radiowaves.left.and.right") }.toggleStyle(.button).help("Reload automatically when an agent changes this file")
+            }
             Button { Task { await save(force: false) } } label: { Text("Save").font(Theme.label).padding(.horizontal, 10).frame(height: 28).background(dirty ? Theme.accent : Theme.hover, in: RoundedRectangle(cornerRadius: 6)).foregroundStyle(dirty ? .black : Theme.textDim) }
                 .buttonStyle(.plain).disabled(!dirty).keyboardShortcut("s", modifiers: .command)
         }
         .padding(.horizontal, 10).frame(height: 38).background(Theme.raised)
     }
+
+    static let modes = ["edit", "view", "diff", "history"]
+    static func modeTitle(_ m: String) -> String { ["edit": "Edit", "view": "View", "diff": "Changes", "history": "History"][m] ?? m.capitalized }
 
     @ViewBuilder func bodyView(_ path: String) -> some View {
         let ext = (path as NSString).pathExtension.lowercased()
@@ -395,9 +423,11 @@ struct RevisionHistory: View {
     @State private var selected: Int?
     @State private var diff: String?
     @State private var playing = false
+    @Environment(\.compactLayout) private var compact
 
     var body: some View {
-        HStack(spacing: 0) {
+        let stack = compact ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        stack {
             List(revisions, selection: $selected) { r in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
@@ -413,13 +443,13 @@ struct RevisionHistory: View {
                 }
                 .tag(r.id).listRowBackground(selected == r.id ? Theme.hover : Theme.surface)
             }
-            .listStyle(.plain).scrollContentBackground(.hidden).frame(width: 230)
+            .listStyle(.plain).scrollContentBackground(.hidden).frame(width: compact ? nil : 230, height: compact ? 170 : nil)
             .overlay { if revisions.isEmpty { EmptyNote(icon: "clock.arrow.circlepath", text: "No revisions yet", detail: "Open the workspace: while it's watched, every save to this file is snapshotted.") } }
             Divider().overlay(Theme.line)
             VStack(spacing: 0) {
                 HStack {
                     Button { play() } label: { Label(playing ? "Playing…" : "Replay edits", systemImage: "play.fill") }.font(Theme.label).disabled(revisions.count < 2 || playing)
-                    Text("Steps through the real saved revisions, oldest first.").font(Theme.caption).foregroundStyle(Theme.textFaint)
+                    if !compact { Text("Steps through the real saved revisions, oldest first.").font(Theme.caption).foregroundStyle(Theme.textFaint) }
                     Spacer()
                 }.padding(.horizontal, 10).frame(height: 30).background(Theme.raised)
                 DiffView(diff: diff ?? "", emptyText: selected == nil ? "Choose a revision" : "First snapshot (nothing earlier to compare)")

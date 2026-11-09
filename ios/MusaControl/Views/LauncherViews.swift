@@ -31,26 +31,15 @@ struct AgentLauncher: View {
             // The project decides where the agent runs and what it can edit, so
             // it is never chosen silently: the last workspace is only a
             // suggestion and is named on the Start button.
-            HStack {
-                Text("Runs in").font(Theme.label).foregroundStyle(Theme.textDim)
-                ProjectPicker(selection: $project)
-                Spacer()
-                Picker("Permissions", selection: $mode) {
-                    if agent == "claude" {
-                        Text("Ask before acting").tag("default")
-                        Text("Auto-accept edits").tag("acceptEdits")
-                        Text("Plan only").tag("plan")
-                    } else {
-                        Text("Workspace write, ask").tag("default")
-                        Text("Read-only").tag("read-only")
-                    }
-                }.pickerStyle(.menu)
+            ViewThatFits(in: .horizontal) {
+                HStack { runsIn; Spacer(); permissions }
+                VStack(alignment: .leading, spacing: 8) { runsIn; permissions }
             }
             TextField("What should \(agent == "claude" ? "Claude Code" : "Codex") do?", text: $prompt, axis: .vertical)
                 .lineLimit(4...12).font(.system(size: 14)).focused($focus)
                 .padding(12).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("launcher.prompt")
-            Text("Runs on the server in tmux and keeps going if the iPad disconnects. Approvals arrive here as cards and notifications.")
+            Text("Runs on the server in tmux and keeps going if your device disconnects. Approvals arrive here as cards and notifications.")
                 .font(Theme.caption).foregroundStyle(Theme.textFaint)
             if let error {
                 VStack(alignment: .leading, spacing: 6) {
@@ -59,24 +48,51 @@ struct AgentLauncher: View {
                 }
             }
             if let duplicate {
-                HStack {
-                    Button("Open the running session") { app.openAgent(duplicate); dismiss() }
-                    Button("Start a second one anyway") { launch(allowDuplicate: true) }
+                ViewThatFits(in: .horizontal) {
+                    HStack { duplicateButtons(duplicate) }
+                    VStack(alignment: .leading, spacing: 8) { duplicateButtons(duplicate) }
                 }.font(Theme.label)
             }
             HStack {
                 Spacer()
                 Button { launch(allowDuplicate: false) } label: {
-                    HStack { if busy { ProgressView().controlSize(.small) }; Text(startLabel).font(.system(size: 14, weight: .semibold)).lineLimit(1) }
-                        .padding(.horizontal, 22).frame(height: 38).background(project == nil ? Theme.hover : Theme.accent, in: RoundedRectangle(cornerRadius: 9)).foregroundStyle(Theme.onAccent)
+                    HStack { if busy { ProgressView().controlSize(.small) }; Text(startLabel).font(.system(size: 14, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8) }
+                        .padding(.horizontal, 22).frame(maxWidth: Device.isPhone ? CGFloat.infinity : nil).frame(height: 38).background(project == nil ? Theme.hover : Theme.accent, in: RoundedRectangle(cornerRadius: 9)).foregroundStyle(Theme.onAccent)
                 }
                 .buttonStyle(.plain).disabled(project == nil || busy).keyboardShortcut(.return, modifiers: .command)
                 .accessibilityIdentifier("launcher.start")
             }
         }
-        .padding(20).frame(minWidth: 360, idealWidth: 600).background(Theme.surface)
+        .padding(20).frame(minWidth: Device.isPhone ? nil : 360, idealWidth: 600)
+        .frame(maxHeight: Device.isPhone ? CGFloat.infinity : nil, alignment: .top)
+        .background(Theme.surface)
         .onAppear { project = initialProject ?? app.workspaceProject; focus = true }
         .onChange(of: agent) { _, a in mode = "default"; UserDefaults.standard.set(a, forKey: "launcher.agent") }
+    }
+
+    var runsIn: some View {
+        HStack {
+            Text("Runs in").font(Theme.label).foregroundStyle(Theme.textDim)
+            ProjectPicker(selection: $project)
+        }
+    }
+
+    var permissions: some View {
+        Picker("Permissions", selection: $mode) {
+            if agent == "claude" {
+                Text("Ask before acting").tag("default")
+                Text("Auto-accept edits").tag("acceptEdits")
+                Text("Plan only").tag("plan")
+            } else {
+                Text("Workspace write, ask").tag("default")
+                Text("Read-only").tag("read-only")
+            }
+        }.pickerStyle(.menu)
+    }
+
+    @ViewBuilder func duplicateButtons(_ id: String) -> some View {
+        Button("Open the running session") { app.openAgent(id); dismiss() }
+        Button("Start a second one anyway") { launch(allowDuplicate: true) }
     }
 
     var startLabel: String {
@@ -144,7 +160,7 @@ struct QuickSwitcher: View {
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
         }
-        .frame(minWidth: 520, minHeight: 440).background(Theme.surface)
+        .frame(minWidth: Device.isPhone ? nil : 520, minHeight: Device.isPhone ? nil : 440).background(Theme.surface)
         .onAppear { focus = true }
     }
 }

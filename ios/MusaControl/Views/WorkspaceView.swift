@@ -159,6 +159,8 @@ struct WorkspaceView: View {
     @State private var layout = WorkspaceLayout.standard()
     @State private var portrait = false
     @State private var loaded = false
+    @State private var page: UUID?
+    @Environment(\.compactLayout) private var compact
 
     var body: some View {
         GeometryReader { geo in
@@ -166,7 +168,9 @@ struct WorkspaceView: View {
             VStack(spacing: 0) {
                 toolbar
                 Group {
-                    if let m = layout.maximized, let loc = layout.locate(m) {
+                    if compact {
+                        paged
+                    } else if let m = layout.maximized, let loc = layout.locate(m) {
                         panel(layout.columns[loc.0].panels[loc.1], column: loc.0, row: loc.1)
                     } else {
                         columns(size: CGSize(width: geo.size.width, height: geo.size.height - 44))
@@ -180,11 +184,47 @@ struct WorkspaceView: View {
         .background(Theme.line)
     }
 
+    /// Phone: one panel at a time, chosen from a strip of the layout's panels.
+    var paged: some View {
+        let slots = layout.columns.flatMap(\.panels)
+        let current = slots.first { $0.id == page } ?? slots.first
+        return VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(slots) { slot in
+                        let on = slot.id == current?.id
+                        Button { page = slot.id } label: {
+                            Label(slot.kind.title, systemImage: slot.kind.icon).font(.system(size: 13, weight: on ? .semibold : .regular))
+                                .padding(.horizontal, 11).frame(height: 30)
+                                .background(on ? Theme.accent.opacity(0.18) : Theme.hover, in: Capsule())
+                                .foregroundStyle(on ? Theme.accent : Theme.textDim)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            ForEach(PanelKind.allCases) { k in Button { if let loc = layout.locate(slot.id) { replace(slot.id, with: k); page = layout.columns[loc.0].panels[loc.1].id } } label: { Label("Show \(k.title)", systemImage: k.icon) } }
+                            Divider()
+                            Button(role: .destructive) { close(slot.id); page = nil } label: { Label("Close panel", systemImage: "xmark") }
+                        }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            }
+            .background(Theme.surface)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+            if let slot = current {
+                PanelContent(slot: slot, projectId: projectId, setConfig: { k, v in setConfig(slot.id, k, v) })
+                    .id(slot.id)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.surface)
+            }
+        }
+    }
+
     var toolbar: some View {
         HStack(spacing: 8) {
             if let p = app.project(projectId) {
-                Text(p.name).font(.system(size: 14, weight: .semibold))
-                Text(p.path.replacingOccurrences(of: "/home/dev", with: "~")).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
+                Text(p.name).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                if !compact { Text(p.path.replacingOccurrences(of: "/home/dev", with: "~")).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1) }
             }
             Spacer()
             Button { app.launcherProject = projectId; app.showLauncher = true } label: { Label("Agent", systemImage: "plus").font(Theme.label) }
@@ -260,6 +300,7 @@ struct WorkspaceView: View {
             layout.columns[i].panels.append(PanelSlot(kind: k)); layout.columns[i].heights.append(1 / CGFloat(layout.columns[i].panels.count))
         }
         layout.maximized = nil; layout.normalise()
+        if compact { page = layout.columns.flatMap(\.panels).last { $0.kind == k }?.id }
     }
     func close(_ id: UUID) {
         guard let loc = layout.locate(id) else { return }

@@ -81,6 +81,7 @@ struct BackBar: View {
         HStack {
             Button(action: action) { Label(title, systemImage: "chevron.left").font(.system(size: 14, weight: .medium)) }
                 .buttonStyle(.plain).foregroundStyle(Theme.accent).keyboardShortcut("[", modifiers: .command)
+                .accessibilityIdentifier("back")
             Spacer()
         }
         .padding(.horizontal, 12).frame(height: 40).background(Theme.surface)
@@ -96,6 +97,7 @@ struct AgentDetail: View {
     @State private var confirmEnd = false
     @State private var error: String?
     @State private var titleExpanded = false
+    @Environment(\.compactLayout) private var compact
 
     var body: some View {
         VStack(spacing: 0) {
@@ -159,15 +161,20 @@ struct AgentDetail: View {
                 StatusDot(status: agent.status, size: 8)
                 Text(nowText).font(.system(size: 13.5, weight: .medium)).foregroundStyle(agent.status == "approval" ? Theme.yellow : Theme.text).lineLimit(1).truncationMode(.tail)
                 Spacer(minLength: 8)
-                Picker("View", selection: $tab) {
-                    Text("Activity").tag("activity"); Text("Screen").tag("screen"); Text("Follow").tag("follow")
-                }
-                .pickerStyle(.segmented).frame(maxWidth: 260)
+                if !compact { viewPicker.frame(maxWidth: 260) }
             }
+            if compact { viewPicker }
         }
         .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 10)
         .background(Theme.surface)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+    }
+
+    var viewPicker: some View {
+        Picker("View", selection: $tab) {
+            Text("Activity").tag("activity"); Text("Screen").tag("screen"); Text("Follow").tag("follow")
+        }
+        .pickerStyle(.segmented)
     }
 
     var nowText: String {
@@ -347,7 +354,7 @@ struct AgentComposer: View {
                 PhotosPicker(selection: $photo, matching: .images) { Image(systemName: "photo").frame(width: 30, height: 34) }
                     .disabled(!agent.controllable)
                 Button { importing = true } label: { Image(systemName: "paperclip").frame(width: 30, height: 34) }.buttonStyle(.plain).disabled(!agent.controllable)
-                TextField(agent.controllable ? (agent.status == "approval" ? "Answer the prompt above first" : "Instruct \(agent.agentName)…  (⌘↩ to send)") : "Watching only — this session isn't in tmux", text: $text, axis: .vertical)
+                TextField(agent.controllable ? (agent.status == "approval" ? "Answer the prompt above first" : (Device.isPhone ? "Instruct \(agent.agentName)…" : "Instruct \(agent.agentName)…  (⌘↩ to send)")) : "Watching only — this session isn't in tmux", text: $text, axis: .vertical)
                     .lineLimit(1...8).font(.system(size: 14.5)).focused($focused)
                     .padding(.horizontal, 10).padding(.vertical, 8)
                     .background(Theme.bg, in: RoundedRectangle(cornerRadius: 9))

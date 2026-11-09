@@ -1,4 +1,4 @@
-# Musa Control iPad app: build + test on every push (simulator), and a
+# Musa Control iPad + iPhone app: build + test on every push (simulator), and a
 # manually-triggered TestFlight upload. There is no Mac on the VPS, so this
 # GitHub-hosted macOS runner is the only place the app is compiled.
 #
@@ -75,6 +75,15 @@ jobs:
           print(c[-1][1]["udid"])')
           echo "SIM=$udid" >> $GITHUB_ENV
           xcrun simctl list devices | grep "$udid"
+          phone=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d = json.load(sys.stdin)["devices"]
+          c = [(r, x) for r, xs in d.items() if "iOS" in r for x in xs if x["name"].startswith("iPhone 16 Pro") or x["name"].startswith("iPhone 17 Pro")] or \
+              [(r, x) for r, xs in d.items() if "iOS" in r for x in xs if x["name"].startswith("iPhone")]
+          c.sort(key=lambda t: t[0])
+          print(c[-1][1]["udid"])')
+          echo "PHONE=$phone" >> $GITHUB_ENV
+          xcrun simctl list devices | grep "$phone"
 
       - name: Build and run unit tests
         run: |
@@ -89,8 +98,17 @@ jobs:
         continue-on-error: true
         run: |
           xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation -skipMacroValidation \
-            -destination "id=$SIM" -only-testing:MusaControlUITests \
+            -destination "id=$SIM" -only-testing:MusaControlUITests -skip-testing:MusaControlUITests/MusaControlPhoneUITests \
             -resultBundlePath build/ui.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/ui.log \
+            | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 300'
+
+      - name: iPhone UI tests (tab bar, list → detail navigation, every section)
+        if: github.event_name != 'workflow_dispatch' || inputs.ui_tests
+        continue-on-error: true
+        run: |
+          xcodebuild test -project MusaControl.xcodeproj -scheme MusaControl -skipPackagePluginValidation -skipMacroValidation \
+            -destination "id=$PHONE" -only-testing:MusaControlUITests/MusaControlPhoneUITests \
+            -resultBundlePath build/phone.xcresult CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/phone.log \
             | awk '/error:|\*\* |Test Case .*(passed|failed)|Executed [0-9]/ && n++ < 300'
 
       - name: Export screenshots

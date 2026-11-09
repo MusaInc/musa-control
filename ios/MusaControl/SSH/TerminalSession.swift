@@ -26,7 +26,7 @@ enum SSHFailure: LocalizedError {
     case notConfigured, hostKeyMismatch(String), closed
     var errorDescription: String? {
         switch self {
-        case .notConfigured: return "SSH isn't set up yet. Open Settings → SSH and install this iPad's key."
+        case .notConfigured: return "SSH isn't set up yet. Open Settings → SSH and install this \(Device.name)'s key."
         case .hostKeyMismatch(let fp): return "The server's SSH host key (\(fp)) doesn't match the pinned key. Connection refused."
         case .closed: return "Connection closed"
         }

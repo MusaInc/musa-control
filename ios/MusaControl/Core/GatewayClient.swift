@@ -38,7 +38,7 @@ final class GatewayClient: @unchecked Sendable {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 30
         cfg.waitsForConnectivity = false
-        cfg.httpAdditionalHeaders = ["User-Agent": "MusaControl-iPad/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")"]
+        cfg.httpAdditionalHeaders = ["User-Agent": "MusaControl-\(Device.name)/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")"]
         self.session = URLSession(configuration: cfg)
         self.transport = transport ?? URLSessionTransport(session: session)
     }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GitBuildsView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.compactLayout) private var compact
     @State private var project: String?
     @State private var tab = "changes"
 
@@ -9,30 +10,28 @@ struct GitBuildsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                PanelHeader(icon: "arrow.triangle.branch", title: "Repositories", subtitle: "\(gitProjects.count)")
-                List(gitProjects, selection: $project) { p in
-                    HStack(spacing: 8) {
-                        Image(systemName: p.icon).frame(width: 16).foregroundStyle(Theme.textDim)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(p.name).font(.system(size: 14))
-                            Text(p.github ?? "local only").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
-                        }
-                    }
-                    .tag(p.id).listRowBackground(project == p.id ? Theme.hover : Theme.surface)
-                }
-                .listStyle(.plain).scrollContentBackground(.hidden)
-            }
-            .frame(width: 250).background(Theme.surface)
-            Divider().overlay(Theme.line)
-            if let id = project, let p = app.project(id) {
+            if !compact {
                 VStack(spacing: 0) {
-                    Picker("", selection: $tab) {
-                        Text("Changes").tag("changes"); Text("History").tag("history"); Text("Branches").tag("branches")
-                        Text("Builds").tag("builds")
-                        if p.github != nil { Text("Actions").tag("ci"); Text("Pull requests").tag("prs") }
+                    PanelHeader(icon: "arrow.triangle.branch", title: "Repositories", subtitle: "\(gitProjects.count)")
+                    List(gitProjects, selection: $project) { p in
+                        HStack(spacing: 8) {
+                            Image(systemName: p.icon).frame(width: 16).foregroundStyle(Theme.textDim)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(p.name).font(.system(size: 14))
+                                Text(p.github ?? "local only").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
+                            }
+                        }
+                        .tag(p.id).listRowBackground(project == p.id ? Theme.hover : Theme.surface)
                     }
-                    .pickerStyle(.segmented).padding(8).background(Theme.raised)
+                    .listStyle(.plain).scrollContentBackground(.hidden)
+                }
+                .frame(width: 250).background(Theme.surface)
+                Divider().overlay(Theme.line)
+            }
+            VStack(spacing: 0) {
+                if compact { repoMenu }
+                if let id = project, let p = app.project(id) {
+                    ChipPicker(options: tabs(p), selection: $tab).background(Theme.raised)
                     Group {
                         switch tab {
                         case "history": GitHistory(projectId: id)
@@ -43,12 +42,39 @@ struct GitBuildsView: View {
                         default: GitPanel(projectId: id)
                         }
                     }
+                    .id("\(id)/\(tab)")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            } else { EmptyNote(icon: "arrow.triangle.branch", text: "Choose a repository") }
+                } else { EmptyNote(icon: "arrow.triangle.branch", text: "Choose a repository") }
+            }
         }
         .background(Theme.bg)
         .onAppear { if project == nil { project = app.workspaceProject.flatMap { id in gitProjects.contains { $0.id == id } ? id : nil } ?? gitProjects.first?.id } }
+        .onChange(of: project) { _, id in if let p = app.project(id), p.github == nil, tab == "ci" || tab == "prs" { tab = "changes" } }
+    }
+
+    func tabs(_ p: Project) -> [(value: String, title: String)] {
+        var t: [(value: String, title: String)] = [("changes", "Changes"), ("history", "History"), ("branches", "Branches"), ("builds", "Builds")]
+        if p.github != nil { t += [("ci", "Actions"), ("prs", "Pull requests")] }
+        return t
+    }
+
+    var repoMenu: some View {
+        Menu {
+            ForEach(gitProjects) { p in Button { project = p.id } label: { Label(p.name, systemImage: p.id == project ? "checkmark" : p.icon) } }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.triangle.branch").foregroundStyle(Theme.textDim)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(app.project(project)?.name ?? "Choose a repository").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
+                    Text(app.project(project)?.github ?? "local only").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
+                }
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 12)).foregroundStyle(Theme.textDim)
+            }
+            .padding(.horizontal, 14).frame(height: 50).background(Theme.surface)
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .accessibilityIdentifier("git.repoMenu")
     }
 }
 
@@ -65,7 +91,7 @@ struct GitPanel: View {
     @State private var confirm: String?
 
     var body: some View {
-        HStack(spacing: 0) {
+        AdaptiveSplit(masterWidth: 320, showingDetail: selected != nil, backTitle: "Changes", onBack: { selected = nil; diff = "" }) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.branch").foregroundStyle(Theme.textDim)
@@ -98,10 +124,9 @@ struct GitPanel: View {
                 }
                 .padding(8).background(Theme.raised)
             }
-            .frame(width: 320).background(Theme.surface)
-            Divider().overlay(Theme.line)
+            .background(Theme.surface)
+        } detail: {
             DiffView(diff: diff, emptyText: selected == nil ? "Choose a file to see its diff" : "No textual changes")
-                .frame(maxWidth: .infinity)
         }
         .task(id: projectId) { await load() }
         .onChange(of: app.eventTick) { _, _ in if let e = app.liveEvents.last, e.project == projectId, e.kind == "file.changed" { Task { await load(); if let s = selected { await showDiff(s) } } } }
@@ -168,7 +193,7 @@ struct GitHistory: View {
     @State private var selected: String?
     @State private var diff = ""
     var body: some View {
-        HStack(spacing: 0) {
+        AdaptiveSplit(masterWidth: 340, showingDetail: selected != nil, backTitle: "History", onBack: { selected = nil; diff = "" }) {
             List(commits, selection: $selected) { c in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(c.subject).font(.system(size: 13.5)).lineLimit(2)
@@ -177,8 +202,8 @@ struct GitHistory: View {
                 }
                 .tag(c.sha).listRowBackground(selected == c.sha ? Theme.hover : Theme.surface)
             }
-            .listStyle(.plain).scrollContentBackground(.hidden).frame(width: 340)
-            Divider().overlay(Theme.line)
+            .listStyle(.plain).scrollContentBackground(.hidden)
+        } detail: {
             DiffView(diff: diff, emptyText: "Choose a commit")
         }
         .task(id: projectId) { commits = (try? await app.client.get("/api/projects/\(projectId)/git/log", ["limit": "100"], as: [Commit].self)) ?? [] }
@@ -216,9 +241,10 @@ struct BuildsPanel: View {
     @State private var selected: String?
     @State private var log: BuildLog?
     @State private var error: String?
+    @Environment(\.compactLayout) private var compact
 
     var body: some View {
-        HStack(spacing: 0) {
+        AdaptiveSplit(masterWidth: 300, showingDetail: selected != nil, backTitle: "Builds", onBack: { selected = nil; log = nil }) {
             VStack(spacing: 0) {
                 List {
                     SwiftUI.Section("Run") {
@@ -242,8 +268,8 @@ struct BuildsPanel: View {
                 .listStyle(.plain).scrollContentBackground(.hidden)
                 if let error { Text(error).font(Theme.caption).foregroundStyle(Theme.red).padding(6) }
             }
-            .frame(width: 300).background(Theme.surface)
-            Divider().overlay(Theme.line)
+            .background(Theme.surface)
+        } detail: {
             VStack(spacing: 0) {
                 if let l = log {
                     HStack {
@@ -272,7 +298,7 @@ struct BuildsPanel: View {
     func load() async {
         detail = try? await app.client.get("/api/projects/\(projectId)", as: ProjectDetail.self)
         builds = (try? await app.client.get("/api/projects/\(projectId)/builds", as: [Build].self)) ?? []
-        if selected == nil { selected = builds.first?.id }
+        if selected == nil && !compact { selected = builds.first?.id }
     }
     func run(_ c: ProjectCommand) {
         Task {
@@ -317,10 +343,12 @@ struct CIRuns: View {
     @State private var workflows: [Workflow] = []
     @State private var dispatching: Workflow?
 
+    @Environment(\.compactLayout) private var compact
+
     var path: String { "/api/github/\(repo)" }
 
     var body: some View {
-        HStack(spacing: 0) {
+        AdaptiveSplit(masterWidth: 340, showingDetail: selected != nil, backTitle: "Runs", onBack: { selected = nil; detail = nil; log = nil }) {
             List(runs, selection: $selected) { r in
                 HStack(alignment: .top, spacing: 8) {
                     StatusDot(status: r.state).padding(.top, 5)
@@ -331,7 +359,7 @@ struct CIRuns: View {
                 }
                 .tag(r.databaseId).listRowBackground(selected == r.databaseId ? Theme.hover : Theme.surface)
             }
-            .listStyle(.plain).scrollContentBackground(.hidden).frame(width: 340)
+            .listStyle(.plain).scrollContentBackground(.hidden)
             .refreshable { await load() }
             .safeAreaInset(edge: .top) {
                 Menu {
@@ -339,7 +367,7 @@ struct CIRuns: View {
                 } label: { Label("Run workflow", systemImage: "play.circle").font(Theme.label).frame(maxWidth: .infinity).frame(height: 32) }
                 .disabled(workflows.isEmpty).background(Theme.raised)
             }
-            Divider().overlay(Theme.line)
+        } detail: {
             VStack(spacing: 0) {
                 if let d = detail {
                     HStack(spacing: 8) {
@@ -397,7 +425,7 @@ struct CIRuns: View {
     func load() async {
         if workflows.isEmpty { workflows = (try? await app.client.get("\(path)/workflows", as: [Workflow].self)) ?? [] }
         runs = (try? await app.client.get("\(path)/runs", ["limit": "30"], as: [WorkflowRun].self)) ?? []
-        if selected == nil { selected = runs.first?.databaseId }
+        if selected == nil && !compact { selected = runs.first?.databaseId }
     }
     func loadDetail() async {
         guard let s = selected else { return }
@@ -414,7 +442,7 @@ struct PullRequests: View {
     @State private var selected: Int?
     @State private var diff = ""
     var body: some View {
-        HStack(spacing: 0) {
+        AdaptiveSplit(masterWidth: 340, showingDetail: selected != nil, backTitle: "Pull requests", onBack: { selected = nil; diff = "" }) {
             List(prs, selection: $selected) { p in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack { Text("#\(p.number)").font(Theme.monoSmall).foregroundStyle(Theme.accent); Pill(text: p.isDraft == true ? "draft" : p.state.lowercased(), color: p.state == "OPEN" ? Theme.green : p.state == "MERGED" ? Theme.purple : Theme.textDim) }
@@ -423,9 +451,9 @@ struct PullRequests: View {
                 }
                 .tag(p.number).listRowBackground(selected == p.number ? Theme.hover : Theme.surface)
             }
-            .listStyle(.plain).scrollContentBackground(.hidden).frame(width: 340)
+            .listStyle(.plain).scrollContentBackground(.hidden)
             .overlay { if prs.isEmpty { EmptyNote(icon: "arrow.triangle.pull", text: "No pull requests") } }
-            Divider().overlay(Theme.line)
+        } detail: {
             DiffView(diff: diff, emptyText: "Choose a pull request")
         }
         .task(id: repo) { prs = (try? await app.client.get("/api/github/\(repo)/pulls", as: [PullRequest].self)) ?? [] }

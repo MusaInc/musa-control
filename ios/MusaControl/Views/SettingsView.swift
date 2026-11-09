@@ -20,13 +20,13 @@ struct SettingsView: View {
                 LabeledContent("Status") { HStack { ConnectionDot(); Text(statusText) } }
                 if let me { LabeledContent("This device", value: me.name); LabeledContent("Token expires", value: Date(timeIntervalSince1970: me.expiresAt / 1000).formatted(date: .abbreviated, time: .omitted)) }
                 Button("Reconnect") { Task { await app.connect() } }
-                Button("Unpair this iPad", role: .destructive) { confirmUnpair = true }
+                Button("Unpair this \(Device.name)", role: .destructive) { confirmUnpair = true }
             }
             SwiftUI.Section {
                 ForEach(devices) { d in
                     HStack {
                         VStack(alignment: .leading) {
-                            Text(d.name + (d.id == me?.id ? " (this iPad)" : "")).font(.system(size: 14))
+                            Text(d.name + (d.id == me?.id ? " (this \(Device.name))" : "")).font(.system(size: 14))
                             Text("Paired \(Date(timeIntervalSince1970: d.created_at / 1000).formatted(date: .abbreviated, time: .shortened)) · last seen \(Fmt.ago(d.last_seen))").font(Theme.caption).foregroundStyle(Theme.textDim)
                         }
                         Spacer()
@@ -37,17 +37,17 @@ struct SettingsView: View {
             } header: { Text("Paired devices") } footer: { Text("Revoking a device also removes its SSH key from the server.") }
 
             SwiftUI.Section {
-                LabeledContent("This iPad's key", value: SSHKeys.ownFingerprint).font(Theme.monoSmall)
+                LabeledContent("This \(Device.name)'s key", value: SSHKeys.ownFingerprint).font(Theme.monoSmall)
                 if let s = ssh {
                     LabeledContent("Server", value: "\(s.user)@\(s.host):\(s.port)")
                     ForEach(s.pinnedFingerprints, id: \.self) { fp in LabeledContent("Pinned host key", value: fp).font(Theme.monoSmall) }
                 }
-                Button { Task { await setupSSH() } } label: { HStack { if sshBusy { ProgressView().controlSize(.small) }; Text(ssh?.keyInstalled == true ? "Re-install key & refresh host keys" : "Set up SSH for this iPad") } }
+                Button { Task { await setupSSH() } } label: { HStack { if sshBusy { ProgressView().controlSize(.small) }; Text(ssh?.keyInstalled == true ? "Re-install key & refresh host keys" : "Set up SSH for this \(Device.name)") } }
                     .disabled(sshBusy)
                 Button("Open a test terminal") { app.go(.terminal); terminals.newShell() }.disabled(ssh?.keyInstalled != true)
                 if let sshNote { Text(sshNote).font(Theme.caption).foregroundStyle(Theme.textDim) }
             } header: { Text("SSH") } footer: {
-                Text("The key is generated on this iPad and stored in the Keychain; only the public half is sent. Host keys are pinned from the gateway over TLS, and every connection is verified against them.")
+                Text("The key is generated on this \(Device.name) and stored in the Keychain; only the public half is sent. Host keys are pinned from the gateway over TLS, and every connection is verified against them.")
             }
 
             SwiftUI.Section {
@@ -56,7 +56,7 @@ struct SettingsView: View {
 
             SwiftUI.Section {
                 Picker("Appearance", selection: $appearance) {
-                    Text("Match iPadOS").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
+                    Text("Match \(Device.osName)").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
                 }
                 Stepper("Terminal text \(Int(terminals.fontSize)) pt", value: Binding(get: { Double(terminals.fontSize) }, set: { terminals.setFontSize(CGFloat($0)) }), in: 9...24)
                 Button("Reset all workspace layouts") { WorkspaceLayoutStore.resetAll() }
@@ -78,16 +78,16 @@ struct SettingsView: View {
 
             SwiftUI.Section("About") {
                 LabeledContent("Version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
-                Text("Musa Control runs nothing on the iPad itself: agents, builds, tmux and the desktop all live on the server.").font(Theme.caption).foregroundStyle(Theme.textDim)
+                Text("Musa Control runs nothing on the \(Device.name) itself: agents, builds, tmux and the desktop all live on the server.").font(Theme.caption).foregroundStyle(Theme.textDim)
             }
         }
         .scrollContentBackground(.hidden).background(Theme.bg)
         .task { await load() }
-        .confirmationDialog("Unpair this iPad?", isPresented: $confirmUnpair, titleVisibility: .visible) {
+        .confirmationDialog("Unpair this \(Device.name)?", isPresented: $confirmUnpair, titleVisibility: .visible) {
             Button("Unpair", role: .destructive) {
                 Task { if let id = me?.id { _ = try? await app.client.raw(app.client.request("DELETE", "/api/devices/\(id)")) }; app.unpair() }
             }
-        } message: { Text("Revokes this iPad's token and SSH key on the server. Running agents and sessions are not affected.") }
+        } message: { Text("Revokes this \(Device.name)'s token and SSH key on the server. Running agents and sessions are not affected.") }
     }
 
     var statusText: String {
@@ -133,9 +133,9 @@ struct NotificationSettingsSections: View {
                 Button("Allow notifications") { Task { _ = await Notifier.shared.requestPermission(); try? await Task.sleep(nanoseconds: 1_200_000_000); await refresh() } }
             }
             if permission == .denied {
-                Button("Open iPadOS Settings") { if let u = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(u) } }
+                Button("Open \(Device.osName) Settings") { if let u = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(u) } }
             }
-            Button { Task { busy = true; defer { busy = false }; do { _ = try await app.client.send("POST", "/api/push/test", [:], as: OK.self); note = "Test sent. It should arrive within a few seconds — try it with the iPad locked." } catch { note = error.localizedDescription } } } label: {
+            Button { Task { busy = true; defer { busy = false }; do { _ = try await app.client.send("POST", "/api/push/test", [:], as: OK.self); note = "Test sent. It should arrive within a few seconds — try it with the \(Device.name) locked." } catch { note = error.localizedDescription } } } label: {
                 HStack { if busy { ProgressView().controlSize(.small) }; Text("Send a test notification") }
             }
             .disabled(status?.registered != true || busy)
@@ -170,13 +170,13 @@ struct NotificationSettingsSections: View {
     }
 
     var permissionText: String {
-        switch permission { case .authorized, .provisional, .ephemeral: return "Allowed"; case .denied: return "Off in iPadOS Settings"; default: return "Not asked yet" }
+        switch permission { case .authorized, .provisional, .ephemeral: return "Allowed"; case .denied: return "Off in \(Device.osName) Settings"; default: return "Not asked yet" }
     }
     var deliveryDot: String { status?.serverConfigured == true && status?.registered == true ? "idle" : status?.serverConfigured == false ? "approval" : "other" }
     var deliveryText: String {
         guard let s = status else { return checked ? "Couldn't reach the gateway — reopen Settings to retry" : "Checking…" }
         if !s.serverConfigured { return "Push not set up on the server yet — notifications arrive while the app is open and on background refreshes" }
-        if !s.registered { return permission == .authorized ? "Registering this iPad…" : "Allow notifications to receive push" }
+        if !s.registered { return permission == .authorized ? "Registering this \(Device.name)…" : "Allow notifications to receive push" }
         return "Instant push (\(s.environment == "sandbox" ? "development" : "production") APNs)"
     }
 
