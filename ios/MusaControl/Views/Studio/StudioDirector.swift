@@ -200,7 +200,7 @@ final class StudioDirector {
     typealias M = StudioMetrics
     enum Mode: Equatable { case loading, catchingUp, live }
     enum CursorStyle: Equatable { case arrow, ibeam, hand }
-    enum Region: Hashable { case stage, explorer, editor, terminal, thought }
+    enum Region: Hashable, CaseIterable { case stage, explorer, editor, terminal, thought, plan, tests, runs, diff, lightbox, files }
 
     let agentId: String
     private let client: GatewayClient
@@ -212,6 +212,18 @@ final class StudioDirector {
     var rootName = "workspace"
     var frames: [Region: CGRect] = [:]
     var showExplorer = true
+
+    // Smart windows (see StudioWindows.swift)
+    var board = WindowBoard.initial
+    @ObservationIgnored var boardSize: CGSize = CGSize(width: 900, height: 600)
+    @ObservationIgnored private var holdUntil = Date.distantPast
+
+    // Widgets
+    var tests: TestRun?
+    var runs: [CommandRun] = []
+    var diff: DiffSplit?
+    var heat: [String: FileHeat] = [:]
+    @ObservationIgnored private var heatClock = 0
 
     // Cursor
     var cursor = CGPoint(x: 280, y: 240)
@@ -374,7 +386,7 @@ final class StudioDirector {
 
     private func move(to p: CGPoint, style: CursorStyle? = nil) async {
         if let style { cursorStyle = style }
-        let f = [Region.explorer, .editor, .terminal, .thought].first { frames[$0]?.contains(p) == true }
+        let f = Region.allCases.first { $0 != .stage && frames[$0]?.contains(p) == true }
         if f != focus { focus = f }
         let d = hypot(p.x - cursor.x, p.y - cursor.y)
         guard d > 1 else { return }
@@ -384,6 +396,34 @@ final class StudioDirector {
     }
     private func nudge(to p: CGPoint) { withAnimation(.linear(duration: 0.07)) { cursor = p } }
     private func click() async { clickTick &+= 1; await wait(0.16) }
+
+    // MARK: Windows
+
+    /// The user is steering the windows (dragged, pinned or picked one):
+    /// for a few seconds the agent opens windows but doesn't take focus.
+    var userSteering: Bool { Date() < holdUntil }
+    func userTouched() { holdUntil = Date().addingTimeInterval(6) }
+
+    /// Open the windows this scene needs (focus one) and give them a moment
+    /// to glide into place before the cursor aims at them.
+    private func present(_ focus: PaneKind?, also: [PaneKind] = []) async {
+        let before = board.layout(in: boardSize).frames
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.55, bounce: 0.12)) {
+            for k in also { board.spawn(k, focus: false) }
+            if let focus { board.spawn(focus, focus: !userSteering) }
+        }
+        guard board.layout(in: boardSize).frames != before else { return }
+        try? await Task.sleep(nanoseconds: reduceMotion ? 80_000_000 : 450_000_000)
+    }
+    private func shows(_ k: PaneKind) -> Bool { board.layout(in: boardSize).frames[k] != nil && frames[k.region] != nil }
+
+    private func touch(_ path: String, edit: Bool) {
+        heatClock += 1
+        var h = heat[path] ?? FileHeat(path: path)
+        if edit { h.edits += 1 } else { h.reads += 1 }
+        h.last = heatClock
+        heat[path] = h
+    }
 
     // MARK: Geometry (stage coordinates)
 
@@ -418,6 +458,14 @@ final class StudioDirector {
     }
 
     private func play(_ e: TimelineEvent) async {
+        // Supporting windows for this kind of event open straight away; each
+        // scene then focuses its main window when it gets to it.
+        let route = WindowRules.route(e, testResult: Feed.isTestResult(e))
+        if !route.also.isEmpty {
+            withAnimation(reduceMotion ? nil : .spring(duration: 0.55, bounce: 0.12)) {
+                for k in route.also { board.spawn(k, focus: false) }
+            }
+        }
         switch e.kind {
         case "agent.edit": await playEdit(e)
         case "agent.read": await playRead(e)
@@ -517,10 +565,13 @@ final class StudioDirector {
     /// Find the file the way a person would: through the folders in the
     /// explorer, or (no explorer / outside the project) with quick open.
     private func locate(_ abs: String) async {
+        let inTree = root != nil && projectId != nil && abs.hasPrefix((root ?? "") + "/")
+        let withTree: Bool = inTree && openPath != abs && WindowBoard.capacity(boardSize) >= 3
+        await present(.editor, also: withTree ? [PaneKind.explorer] : [])
         if openPath == abs { return }
         let name = (abs as NSString).lastPathComponent
         setCaption("Looking for \(name)", icon: "magnifyingglass")
-        if showExplorer, let root, projectId != nil, abs.hasPrefix(root + "/") {
+        if showExplorer, shows(.explorer), let root, projectId != nil, abs.hasPrefix(root + "/") {
             let comps = abs.dropFirst(root.count + 1).split(separator: "/").map(String.init)
             var ancestors = Set<String>()
             var cur = root
@@ -613,6 +664,8 @@ final class StudioDirector {
         let name = (path as NSString).lastPathComponent
         let wasOpen = openPath == path && !lines.isEmpty
         await locate(path)
+        touch(path, edit: false)
+        withAnimation(.snappy) { board.spawn(.files, focus: false) }
         setCaption("Reading \(name)", icon: "eyes")
         if !wasOpen {
             if let t = await content(path) { showDoc(EditScripts.lines(t)) }
@@ -660,10 +713,19 @@ final class StudioDirector {
             await wait(0.8)
             return
         }
+        touch(path, edit: true)
         guard let script else {
             if let current { showDoc(EditScripts.lines(current)) }
             await wait(0.8)
             return
+        }
+        seq += 1
+        let split = DiffSplit.from(script, path: path, id: seq)
+        withAnimation(reduceMotion ? nil : .spring(duration: 0.5, bounce: 0.12)) {
+            diff = split
+            board.spawn(.diff, focus: false)
+            board.spawn(.files, focus: false)
+            board.spawn(.editor, focus: !userSteering)
         }
         showDoc(script.before)
         modified = true
@@ -858,6 +920,7 @@ final class StudioDirector {
         let code = exit.map { " (exit \($0))" } ?? ""
         withAnimation(.easeOut(duration: 0.15)) { appendTerm(ok ? "✓ done\(code)" : "✗ failed\(code)", ok ? .ok : .fail) }
         if !ok { shakeTick &+= 1 }
+        if test { await showTests(out, ok: ok) }
         if test, let s = Feed.testSummary(out) {
             seq += 1
             withAnimation(.spring(duration: 0.4, bounce: 0.45)) { stamp = Stamp(id: seq, text: s, ok: ok) }
@@ -868,14 +931,64 @@ final class StudioDirector {
         }
     }
 
+    private func startRun(_ e: TimelineEvent, cmd: String, test: Bool) {
+        seq += 1
+        let run = CommandRun(id: seq, command: cmd, start: e.ts, end: nil, exit: nil, ok: nil, timed: false, test: test, build: CommandRun.isBuild(cmd))
+        withAnimation(.snappy(duration: 0.3)) {
+            runs.append(run)
+            if runs.count > 12 { runs.removeFirst(runs.count - 12) }
+            if test { tests = TestRun(id: seq, command: cmd) }
+        }
+    }
+    private func finishRun(_ e: TimelineEvent, cmd: String, ok: Bool, exit: Int?, sameEvent: Bool) {
+        if let i = runs.lastIndex(where: { $0.running && (cmd.isEmpty || $0.command == cmd) }) {
+            withAnimation(.snappy(duration: 0.3)) {
+                runs[i].end = e.ts
+                runs[i].timed = !sameEvent && e.ts >= runs[i].start
+                runs[i].ok = ok
+                runs[i].exit = exit
+            }
+        }
+    }
+
+    /// Parse the real output into the test matrix and fill it in, cell by cell.
+    private func showTests(_ out: String, ok: Bool) async {
+        let p = TestParser.parse(out)
+        var run = tests ?? TestRun(id: seq, command: lastCommand ?? "")
+        run.running = false
+        run.ok = ok
+        run.cases = p.cases
+        run.passed = p.passed ?? (p.cases.isEmpty ? nil : p.cases.filter { $0.result == .pass }.count)
+        run.failed = p.failed ?? (p.cases.isEmpty ? nil : p.cases.filter { $0.result == .fail }.count)
+        run.skipped = p.skipped
+        run.failures = p.failures
+        run.summary = Feed.testSummary(out)
+        run.revealed = 0
+        tests = run
+        await present(.tests)
+        let n = run.cellCount
+        guard n > 0 else { return }
+        let steps = min(n, 30)
+        for k in 1...steps {
+            if cancelled { break }
+            tests?.revealed = n * k / steps
+            await wait(1.1 / Double(steps))
+        }
+        tests?.revealed = n
+    }
+
     private func playCommand(_ e: TimelineEvent) async {
         let cmd = e.detail?["command"]?.string ?? e.title
         let test = e.kind == "agent.test"
         setCaption(test ? "Running the tests" : (e.detail?["description"]?.string ?? "Running a command"), icon: test ? "checklist" : "terminal")
+        await present(.terminal, also: test ? [.runs, .tests] : [.runs])
+        startRun(e, cmd: cmd, test: test)
         await typeCommand(cmd)
         if let out = e.detail?["output"]?.string {
             let code = e.detail?["exitCode"]?.number.map { Int($0) }
-            await streamOutput(out, ok: code.map { $0 == 0 } ?? (e.detail?["ok"]?.bool ?? true), exit: code, test: test)
+            let ok = code.map { $0 == 0 } ?? (e.detail?["ok"]?.bool ?? true)
+            finishRun(e, cmd: cmd, ok: ok, exit: code, sameEvent: true)
+            await streamOutput(out, ok: ok, exit: code, test: test)
         } else {
             termBusy = true
             await wait(0.5)
@@ -884,12 +997,18 @@ final class StudioDirector {
 
     private func playCommandDone(_ e: TimelineEvent) async {
         let cmd = e.detail?["command"]?.string ?? ""
-        if !cmd.isEmpty, cmd != lastCommand {
+        await present(.terminal, also: [.runs])
+        // We never saw this command start: its run has no measured duration.
+        let unseenStart = !cmd.isEmpty && cmd != lastCommand
+        if unseenStart {
             setCaption("Running a command", icon: "terminal")
+            startRun(e, cmd: cmd, test: e.detail?["test"]?.bool == true)
             await typeCommand(cmd)
         }
         let code = e.detail?["exitCode"]?.number.map { Int($0) }
         let ok = e.kind != "agent.command_failed" && (e.detail?["ok"]?.bool ?? true)
+        finishRun(e, cmd: cmd, ok: ok, exit: code, sameEvent: unseenStart)
+        if e.detail?["test"]?.bool == true, tests?.running != true { tests = TestRun(id: seq, command: cmd) }
         setCaption(ok ? "Command finished" : "A command failed", icon: ok ? "checkmark.circle" : "xmark.octagon")
         await streamOutput(e.detail?["output"]?.string ?? "", ok: ok, exit: code, test: e.detail?["test"]?.bool == true)
     }
@@ -906,6 +1025,7 @@ final class StudioDirector {
     private func playMessage(_ e: TimelineEvent) async {
         let text = Self.plainText(e.detail?["text"]?.string ?? e.title, 560)
         setCaption("Writing down what it found", icon: "text.bubble")
+        await present(.thought)
         if let f = frames[.thought] { await move(to: CGPoint(x: f.minX + 40, y: f.minY + 46), style: .arrow) }
         thought = ""
         thoughtDone = false
@@ -933,6 +1053,7 @@ final class StudioDirector {
     private func playPlan(_ e: TimelineEvent) async {
         let steps = Self.planSteps(e)
         setCaption("Updating the plan", icon: "list.bullet")
+        await present(nil, also: [.plan])
         if plan.map(\.text) == steps.map(\.text) {
             for (i, s) in steps.enumerated() where i < plan.count && plan[i].status != s.status {
                 withAnimation(.spring(duration: 0.35, bounce: 0.4)) { plan[i] = s }
@@ -974,7 +1095,8 @@ final class StudioDirector {
             heroPhoto = nil
             photos.removeAll { $0.id == p.id }
             photos.append(p)
-            if photos.count > 3 { photos.removeFirst() }
+            if photos.count > 8 { photos.removeFirst() }
+            board.spawn(.lightbox, focus: !userSteering)
         }
         await wait(0.4)
     }
@@ -1003,7 +1125,8 @@ final class StudioDirector {
         if let pattern, ["Grep", "Glob", "LS", "web.search", "WebSearch"].contains(tool) {
             setCaption(tool.lowercased().contains("web") ? "Searching the web" : "Searching the code", icon: tool.lowercased().contains("web") ? "globe" : "magnifyingglass")
             let q = Self.oneLine(pattern, 60)
-            if showExplorer && frames[.explorer] != nil {
+            if showExplorer && WindowBoard.capacity(boardSize) >= 3 { await present(nil, also: [.explorer]) }
+            if showExplorer && shows(.explorer) {
                 await move(to: searchPoint, style: .ibeam)
                 await click()
                 searchText = ""
@@ -1048,5 +1171,45 @@ final class StudioDirector {
             }
         }
         ticker = Array(evs.filter(Self.isScene).suffix(5))
+        // Widgets start from the history too (instantly, no animation).
+        for e in evs {
+            let cmd = e.detail?["command"]?.string ?? ""
+            switch e.kind {
+            case "agent.read", "agent.edit":
+                if let p = e.detail?["path"]?.string { touch(p, edit: e.kind == "agent.edit") }
+            case "agent.command", "agent.test":
+                startRun(e, cmd: cmd, test: e.kind == "agent.test")
+                if e.detail?["output"]?.string != nil || e.detail?["exitCode"]?.number != nil {
+                    let code: Int? = e.detail?["exitCode"]?.number.map { Int($0) }
+                    finishRun(e, cmd: cmd, ok: AgentPulse.ok(e), exit: code, sameEvent: true)
+                }
+            case "agent.command_done", "agent.command_failed":
+                let code: Int? = e.detail?["exitCode"]?.number.map { Int($0) }
+                finishRun(e, cmd: cmd, ok: AgentPulse.ok(e), exit: code, sameEvent: false)
+            default: break
+            }
+            if Feed.isTestResult(e), let out = e.detail?["output"]?.string {
+                let p = TestParser.parse(out)
+                var run = TestRun(id: e.id ?? 0, command: cmd)
+                run.running = false
+                run.ok = AgentPulse.ok(e)
+                run.cases = p.cases
+                run.passed = p.passed ?? (p.cases.isEmpty ? nil : p.cases.filter { $0.result == .pass }.count)
+                run.failed = p.failed ?? (p.cases.isEmpty ? nil : p.cases.filter { $0.result == .fail }.count)
+                run.skipped = p.skipped
+                run.failures = p.failures
+                run.summary = Feed.testSummary(out)
+                run.revealed = run.cellCount
+                tests = run
+            }
+        }
+        // A command in history that never reported back (other than the very
+        // last one, which may still be going) is shown as "no result".
+        for i in runs.indices.dropLast() where runs[i].ok == nil { runs[i].lost = true }
+        if !runs.isEmpty { board.spawn(.runs, focus: false) }
+        if tests != nil { board.spawn(.tests, focus: false) }
+        if !plan.isEmpty { board.spawn(.plan, focus: false) }
+        if !heat.isEmpty { board.spawn(.files, focus: false) }
+        board.spawn(.editor, focus: true)
     }
 }
