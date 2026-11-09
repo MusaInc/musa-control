@@ -3,17 +3,17 @@ import Observation
 import UIKit
 
 enum AppSection: String, CaseIterable, Identifiable, Codable {
-    case home, workspaces, agents, terminal, files, visuals, git, settings
+    case home, deck, workspaces, agents, terminal, files, visuals, git, settings
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .home: return "Home"; case .workspaces: return "Workspaces"; case .agents: return "Agents"; case .terminal: return "Terminal"
+        case .home: return "Home"; case .deck: return "Command Deck"; case .workspaces: return "Workspaces"; case .agents: return "Agents"; case .terminal: return "Terminal"
         case .files: return "Files"; case .visuals: return "Visuals"; case .git: return "Git & Builds"; case .settings: return "Settings"
         }
     }
     var icon: String {
         switch self {
-        case .home: return "square.grid.2x2"; case .workspaces: return "rectangle.split.3x1"; case .agents: return "sparkles"; case .terminal: return "terminal"
+        case .home: return "square.grid.2x2"; case .deck: return "rectangle.3.group"; case .workspaces: return "rectangle.split.3x1"; case .agents: return "sparkles"; case .terminal: return "terminal"
         case .files: return "folder"; case .visuals: return "photo.on.rectangle.angled"; case .git: return "arrow.triangle.branch"; case .settings: return "gearshape"
         }
     }

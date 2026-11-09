@@ -30,14 +30,14 @@ struct PhoneShell: View {
 
 struct PhoneTabBar: View {
     @Environment(AppModel.self) private var app
-    static let tabs: [AppSection] = [.home, .agents, .terminal, .files]
+    static let tabs: [AppSection] = [.home, .deck, .agents, .terminal]
 
     var body: some View {
         let waiting = app.agents.filter { $0.status == "approval" }.count
-        let onTab = app.studioAgent == nil && Self.tabs.contains(app.section)
+        let onTab = (app.studioAgent == nil || app.section == .deck) && Self.tabs.contains(app.section)
         HStack(spacing: 0) {
             ForEach(Self.tabs) { s in
-                item(title: s.title, icon: s.icon, selected: onTab && app.section == s, badge: s == .agents ? waiting : 0, id: "tab.\(s.rawValue)") {
+                item(title: s == .deck ? "Deck" : s.title, icon: s.icon, selected: onTab && app.section == s, badge: s == .agents ? waiting : 0, id: "tab.\(s.rawValue)") {
                     if app.section == s && app.studioAgent == nil && s == .agents { app.focusedAgent = nil }   // re-tap: back to the list
                     app.go(s)
                 }

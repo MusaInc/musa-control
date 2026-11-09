@@ -140,7 +140,7 @@ struct StudioHeader: View {
                 IconButton(systemName: "terminal", help: "Open its terminal") { app.attachTerminal(t) }
             }
             IconButton(systemName: "list.bullet.rectangle", help: "Full activity log") { app.openAgent(agentId) }
-            IconButton(systemName: "xmark", help: "Close") { withAnimation(.snappy(duration: 0.2)) { app.studioAgent = nil } }
+            IconButton(systemName: "xmark", help: "Close") { withAnimation(.spring(duration: 0.5, bounce: 0.12)) { app.studioAgent = nil } }
                 .accessibilityIdentifier("studio.close")
         }
     }

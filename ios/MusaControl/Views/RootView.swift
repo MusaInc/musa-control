@@ -55,11 +55,13 @@ struct RootView: View {
 struct SectionDetail: View {
     @Environment(AppModel.self) private var app
     var body: some View {
-        if let id = app.studioAgent {
+        // The Command Deck hosts its own studio so a tile can grow into it.
+        if let id = app.studioAgent, app.section != .deck {
             AgentStudioView(agentId: id).id(id)
         } else {
             switch app.section {
             case .home: HomeView()
+            case .deck: CommandDeckView()
             case .workspaces: WorkspacesView()
             case .agents: AgentsView()
             case .terminal: TerminalSectionView()
