@@ -392,3 +392,168 @@ final class DeckPulseTests: XCTestCase {
         XCTAssertTrue(out.contains(#""id": 9001"#))
     }
 }
+
+// MARK: - Studio 2.0
+
+final class StudioWidgetTests: XCTestCase {
+    func testJestOutputBecomesCasesWithSuitesAndFailures() {
+        let out = """
+        PASS src/onboarding/__tests__/linking.test.tsx
+          ✓ links an account (41 ms)
+          ✓ skips linking when offline (12 ms)
+        FAIL src/onboarding/__tests__/fallback.test.tsx
+          ✓ renders the fallback (18 ms)
+          ✕ announces the step change (9 ms)
+
+          ● Fallback › announces the step change
+
+            expect(announce).toHaveBeenCalledWith("Step 2 of 4")
+            Received: "Step 2"
+
+        Tests:       1 failed, 3 passed, 4 total
+        """
+        let p = TestParser.parse(out)
+        XCTAssertEqual(p.cases.map(\.result), [.pass, .pass, .pass, .fail])
+        XCTAssertEqual(p.cases[0].name, "links an account")
+        XCTAssertEqual(p.cases[0].ms, 41)
+        XCTAssertEqual(p.cases[3].suite, "src/onboarding/__tests__/fallback.test.tsx")
+        XCTAssertEqual(p.passed, 3)
+        XCTAssertEqual(p.failed, 1)
+        XCTAssertEqual(p.failures.count, 1)
+        XCTAssertTrue(p.failures[0].hasPrefix("Fallback › announces the step change"))
+        XCTAssertTrue(p.failures[0].contains("Received: \"Step 2\""))
+    }
+
+    func testOtherRunners() {
+        XCTAssertEqual(TestParser.parse("ok 1 - adds\nnot ok 2 - subtracts\nok 3 - skip me # SKIP later\n").cases.map(\.result), [.pass, .fail, .skip])
+        XCTAssertEqual(TestParser.parse("tests/test_a.py::test_one PASSED  [50%]\ntests/test_a.py::test_two FAILED [100%]").cases.map(\.result), [.pass, .fail])
+        let go = TestParser.parse("=== RUN   TestA\n--- PASS: TestA (0.01s)\n--- FAIL: TestB (1.20s)\n")
+        XCTAssertEqual(go.cases.map(\.name), ["TestA", "TestB"])
+        XCTAssertEqual(go.cases[1].ms, 1200)
+        XCTAssertEqual(TestParser.parse("test parse::works ... ok\ntest parse::breaks ... FAILED\ntest slow ... ignored").cases.map(\.result), [.pass, .fail, .skip])
+        let xc = TestParser.parse("Test Case '-[AppTests.ParserTests testA]' passed (0.004 seconds).\nTest Case '-[AppTests.ParserTests testB]' failed (0.010 seconds).")
+        XCTAssertEqual(xc.cases.map(\.name), ["testA", "testB"])
+        XCTAssertEqual(xc.cases[0].suite, "AppTests.ParserTests")
+    }
+
+    func testCountsOnlyWhenThereAreNoPerTestLines() {
+        let p = TestParser.parse("Sample output\ntest_camera.gd: 3 passed, 1 failed\n\n44 passed, 1 failed")
+        XCTAssertTrue(p.cases.isEmpty)
+        XCTAssertEqual(p.passed, 44, "totals come from the last summary line")
+        XCTAssertEqual(p.failed, 1)
+        var run = TestRun(id: 1, command: "x")
+        run.passed = p.passed; run.failed = p.failed
+        XCTAssertEqual(run.cellCount, 45)
+        XCTAssertEqual(run.cell(0), .fail, "failures first so they're visible")
+        XCTAssertEqual(run.cell(1), .pass)
+        XCTAssertTrue(TestParser.parse("compiling...\ndone").cases.isEmpty)
+        XCTAssertNil(TestParser.parse("compiling...\ndone").passed, "no invented counts")
+    }
+
+    func testCommandRunsOnlyTimeWhatWasTimed() {
+        var r = CommandRun(id: 1, command: "make", start: 1_000, end: 4_000, exit: 0, ok: true, timed: true, test: false, build: true)
+        XCTAssertEqual(r.duration, 3)
+        r.timed = false
+        XCTAssertNil(r.duration, "a single Codex event has no real duration")
+        XCTAssertFalse(r.running)
+        XCTAssertTrue(CommandRun.isBuild("xcodebuild -scheme App build"))
+        XCTAssertTrue(CommandRun.isBuild("npm run build"))
+        XCTAssertFalse(CommandRun.isBuild("rg -n make_thing src"))
+        XCTAssertEqual(CommandRun.ring(10, longest: 10), 1, accuracy: 0.0001)
+        XCTAssertLessThan(CommandRun.ring(1, longest: 100), 0.2)
+    }
+
+    func testDiffSplitAndHeat() {
+        let s = EditScript(before: ["a", "b"], ops: [EditOp(line: 1, remove: ["b"], insert: ["B", "c"])])
+        let d = DiffSplit.from(s, path: "/x/f.swift", id: 7)
+        XCTAssertEqual(d.hunks.first?.before, ["b"])
+        XCTAssertEqual(d.added, 2)
+        XCTAssertEqual(d.removed, 1)
+        let heat = ["/a": FileHeat(path: "/a", reads: 5, edits: 0, last: 1), "/b": FileHeat(path: "/b", reads: 0, edits: 2, last: 2)]
+        XCTAssertEqual(HeatMap.top(heat).map(\.path), ["/b", "/a"], "an edit outweighs a read")
+        XCTAssertEqual(HeatMap.recency(heat["/b"]!, newest: 2), 1)
+    }
+}
+
+final class WindowBoardTests: XCTestCase {
+    let wide = CGSize(width: 1200, height: 760)
+    let phone = CGSize(width: 370, height: 520)
+
+    func testFocusTakesThePrimarySlotAndOthersGlideAside() {
+        var b = WindowBoard.initial
+        var l = b.layout(in: wide)
+        XCTAssertEqual(l.primary, .editor)
+        XCTAssertEqual(l.tiled.count, 4)
+        b.spawn(.terminal, focus: true)
+        l = b.layout(in: wide)
+        XCTAssertEqual(l.primary, .terminal)
+        XCTAssertNotNil(l.frames[.editor], "the editor moves aside, it doesn't vanish")
+        XCTAssertGreaterThan(l.frames[.terminal]!.width * l.frames[.terminal]!.height, l.frames[.editor]!.width * l.frames[.editor]!.height)
+    }
+
+    func testOverflowMinimisesIntoTheDock() {
+        var b = WindowBoard.initial
+        for k in [PaneKind.runs, .tests, .diff] { b.spawn(k, focus: false) }
+        let l = b.layout(in: wide)
+        XCTAssertEqual(l.tiled.count, WindowBoard.capacity(CGSize(width: wide.width, height: wide.height - WindowBoard.dockHeight - 8)))
+        XCTAssertEqual(Set(l.tiled + l.docked), Set([.editor, .terminal, .thought, .explorer, .runs, .tests, .diff]))
+        XCTAssertEqual(l.docked.first, l.docked.max { b.pane($0).touched < b.pane($1).touched }, "most recent first in the dock")
+        let p = b.layout(in: phone)
+        XCTAssertLessThanOrEqual(p.tiled.count, 2, "a phone shows one or two windows")
+        XCTAssertEqual(p.primary, .editor)
+    }
+
+    func testPinnedWindowStaysPut() {
+        var b = WindowBoard.initial
+        let slot = b.slot(of: .editor, in: wide)
+        XCTAssertEqual(slot, 0)
+        b.togglePin(.editor, slot: slot)
+        let before = b.layout(in: wide).frames[.editor]
+        b.spawn(.tests, focus: true)
+        b.spawn(.thought, focus: true)
+        let after = b.layout(in: wide)
+        XCTAssertEqual(after.tiled.first, .editor, "pinned to the primary slot")
+        XCTAssertEqual(after.frames[.editor]?.origin, before?.origin, "same place (it only gives up room for the dock)")
+        XCTAssertNotEqual(after.primary, .thought)
+        XCTAssertNotNil(after.frames[.thought], "the new focus still gets a slot")
+    }
+
+    func testFloatingAndMinimise() {
+        var b = WindowBoard.initial
+        b.float(.terminal, frame: CGRect(x: 2000, y: -50, width: 400, height: 300))
+        var l = b.layout(in: wide)
+        XCTAssertEqual(l.floating, [.terminal])
+        XCTAssertFalse(l.tiled.contains(.terminal))
+        XCTAssertTrue(CGRect(origin: .zero, size: wide).contains(l.frames[.terminal]!), "kept on stage")
+        b.dock(.terminal)
+        b.minimize(.thought)
+        l = b.layout(in: wide)
+        XCTAssertTrue(l.tiled.contains(.terminal))
+        XCTAssertEqual(l.docked, [.thought])
+        b.bringForward(.thought)
+        XCTAssertEqual(b.layout(in: wide).primary, .thought)
+    }
+
+    func testSlotsTileTheArea() {
+        for n in 1...4 {
+            for size in [wide, CGSize(width: 760, height: 900), phone] {
+                let r = WindowBoard.slots(n, in: size)
+                XCTAssertEqual(r.count, n)
+                for s in r { XCTAssertTrue(CGRect(origin: .zero, size: size).insetBy(dx: -0.5, dy: -0.5).contains(s)) }
+            }
+        }
+    }
+
+    func ev(_ kind: String) -> TimelineEvent { TimelineEvent(id: 1, ts: 1, kind: kind, project: nil, session: "s", title: "", detail: nil, notify: 0) }
+
+    func testEventsMapToWindows() {
+        XCTAssertEqual(WindowRules.route(ev("agent.read"), testResult: false).focus, .editor)
+        XCTAssertEqual(WindowRules.route(ev("agent.edit"), testResult: false).also, [.diff, .files])
+        XCTAssertEqual(WindowRules.route(ev("agent.command"), testResult: false).focus, .terminal)
+        XCTAssertEqual(WindowRules.route(ev("agent.test"), testResult: true).focus, .tests)
+        XCTAssertEqual(WindowRules.route(ev("agent.command_failed"), testResult: false).focus, .terminal)
+        XCTAssertEqual(WindowRules.route(ev("agent.image"), testResult: false).focus, .lightbox)
+        XCTAssertEqual(WindowRules.route(ev("agent.message"), testResult: false).focus, .thought)
+        XCTAssertNil(WindowRules.route(ev("agent.plan"), testResult: false).focus, "plan updates don't steal focus")
+    }
+}

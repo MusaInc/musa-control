@@ -151,4 +151,37 @@ final class MusaControlUITests: XCTestCase {
         sleep(1)
         snap(app, "deck-after-close")
     }
+
+    /// Studio 2.0: windows open for what the agent does (tests → matrix,
+    /// commands → runs, edits → diff + files touched); pin, pop out, dock.
+    func testStudioSmartWindows() {
+        for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
+            let app = launch("deck", orientation: orientation, extra: ["-studio", "codex:sample-5"])
+            XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8), "studio opens")
+            sleep(4)
+            snap(app, "studio2-\(tag)-tests-4s")
+            sleep(5)
+            snap(app, "studio2-\(tag)-tests-9s")
+            if tag == "landscape" {
+                let pin = app.buttons["studio.pin.editor"]
+                if pin.waitForExistence(timeout: 3) { pin.tap(); sleep(1); snap(app, "studio2-pinned-editor") }
+                let runs = app.otherElements["studio.window.runs"]
+                if runs.waitForExistence(timeout: 3) {
+                    let bar = runs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
+                    bar.press(forDuration: 0.2, thenDragTo: bar.withOffset(CGVector(dx: -320, dy: 160)))
+                    sleep(1)
+                    snap(app, "studio2-popped-runs")
+                }
+                for chip in ["files", "diff", "plan", "thought"] {
+                    let b = app.buttons["studio.dock.\(chip)"]
+                    if b.exists { b.tap(); sleep(1); snap(app, "studio2-dock-\(chip)"); break }
+                }
+            }
+            app.terminate()
+        }
+        let app = launch("deck", orientation: .landscapeLeft, appearance: "light", extra: ["-studio", "codex:sample-2"])
+        XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8))
+        sleep(7)
+        snap(app, "studio2-light-editing")
+    }
 }

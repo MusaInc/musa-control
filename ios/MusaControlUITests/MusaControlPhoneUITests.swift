@@ -114,6 +114,14 @@ final class MusaControlPhoneUITests: XCTestCase {
         let app = launch("home", extra: ["-studio", "codex:sample-2"])
         XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8), "studio opens on a phone")
         for t in [2, 6] { sleep(UInt32(t == 2 ? 2 : 4)); snap(app, "studio-\(t)s") }
+        app.terminate()
+        // Tests session: the matrix takes the screen, the rest wait in the dock.
+        let t = launch("home", extra: ["-studio", "codex:sample-5"])
+        XCTAssertTrue(t.buttons["studio.close"].waitForExistence(timeout: 8))
+        sleep(8)
+        snap(t, "studio-tests")
+        let chip = t.buttons["studio.dock.runs"]
+        if chip.waitForExistence(timeout: 2) { chip.tap(); sleep(1); snap(t, "studio-dock-runs") }
     }
 
     /// Phone deck: swipeable hero cards for the busiest agents, focus cards
