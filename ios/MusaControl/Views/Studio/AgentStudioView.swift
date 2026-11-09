@@ -193,70 +193,56 @@ struct LivePill: View {
 struct StudioStage: View {
     let director: StudioDirector
     let agent: Agent?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var d: StudioDirector { director }
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width
-            let explorer = w >= 720
-            let side = w >= 1020
+            let pad: CGFloat = geo.size.width < 500 ? 10 : 14
+            let area = CGRect(x: pad, y: pad, width: max(0, geo.size.width - pad * 2), height: max(0, geo.size.height - pad * 2))
+            let layout = d.board.layout(in: area.size)
             ZStack(alignment: .topLeading) {
                 StageBackdrop(tint: agent?.tint ?? Theme.accent, active: agent?.status == "working")
-                HStack(spacing: 12) {
-                    if explorer {
-                        ExplorerWindow(d: d)
-                            .frame(width: min(250, w * 0.23))
-                            .studioRegion(.explorer, d)
-                    }
-                    VStack(spacing: 12) {
-                        EditorWindow(d: d).studioRegion(.editor, d)
-                        TerminalWindow(d: d)
-                            .frame(height: max(150, geo.size.height * 0.32))
-                            .studioRegion(.terminal, d)
-                    }
-                    if side {
-                        VStack(spacing: 12) {
-                            ThoughtCard(d: d, agent: agent).studioRegion(.thought, d)
-                            if !d.plan.isEmpty { StudioPlanCard(steps: d.plan).transition(.move(edge: .trailing).combined(with: .opacity)) }
-                            if !d.photos.isEmpty { PhotoStack(photos: d.photos).transition(.scale.combined(with: .opacity)) }
-                        }
-                        .frame(width: 272)
-                        .animation(.snappy, value: d.plan.isEmpty)
+
+                ForEach(layout.tiled + layout.floating, id: \.self) { k in
+                    if let f = layout.frames[k] {
+                        PaneHost(kind: k, frame: f, origin: area.origin, area: area.size,
+                                 floating: layout.floating.contains(k), primary: layout.primary == k, d: d) { pane(k) }
+                            .zIndex(z(k, layout))
+                            .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.scale(scale: 0.5, anchor: .bottom).combined(with: .opacity))
                     }
                 }
-                .padding(14)
 
-                if !side && (!d.thoughtDone || d.thought.isEmpty && agent?.status == "working") {
-                    ThoughtCard(d: d, agent: agent)
-                        .frame(width: min(300, w - 60), height: 150)
-                        .studioRegion(.thought, d)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .padding(.top, 70).padding(.trailing, 28)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                if !layout.docked.isEmpty {
+                    StudioDock(kinds: layout.docked, d: d)
+                        .frame(width: geo.size.width, height: geo.size.height - pad, alignment: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(20)
                 }
 
                 if let p = d.heroPhoto {
                     HeroPhoto(photo: p)
-                        .frame(width: min(520, w * 0.6))
+                        .frame(width: min(520, geo.size.width * 0.6))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.scale(scale: 0.3, anchor: .bottomTrailing).combined(with: .opacity))
-                        .zIndex(2)
+                        .zIndex(30)
                 }
 
                 if let text = d.instruction {
                     InstructionToast(text: text)
-                        .frame(maxWidth: min(560, w - 40))
+                        .frame(maxWidth: min(560, geo.size.width - 40))
                         .frame(maxWidth: .infinity)
                         .padding(.top, 18)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                        .zIndex(3)
+                        .zIndex(31)
                 }
 
                 CelebrateBurst(tick: d.celebrateTick)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .zIndex(32)
 
                 StudioCursor(d: d, name: agent?.shortName ?? "Agent", tint: agent?.tint ?? Theme.accent)
-                    .zIndex(4)
+                    .zIndex(40)
 
                 if let a = agent, let p = a.approval {
                     VStack {
@@ -270,16 +256,45 @@ struct StudioStage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black.opacity(0.14))
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(5)
+                    .zIndex(50)
                 }
             }
             .coordinateSpace(.named("stage"))
-            .onAppear { d.frames[.stage] = CGRect(origin: .zero, size: geo.size); d.showExplorer = explorer }
+            .onAppear {
+                d.frames[.stage] = CGRect(origin: .zero, size: geo.size)
+                d.boardSize = area.size
+                d.showExplorer = WindowBoard.capacity(area.size) >= 3
+            }
             .onChange(of: geo.size) { _, s in d.frames[.stage] = CGRect(origin: .zero, size: s) }
-            .onChange(of: explorer) { _, e in d.showExplorer = e }
+            .onChange(of: area.size) { _, s in
+                d.boardSize = s
+                d.showExplorer = WindowBoard.capacity(s) >= 3
+            }
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.55, bounce: 0.12), value: layout)
             .animation(.snappy(duration: 0.3), value: agent?.approval != nil)
         }
         .clipped()
+    }
+
+    /// Floating windows above tiled ones (most recent on top), focus above the rest.
+    func z(_ k: PaneKind, _ layout: BoardLayout) -> Double {
+        if layout.floating.contains(k) { return 10 + Double(d.board.pane(k).touched) / 10_000 }
+        return layout.primary == k ? 1 : 0
+    }
+
+    @ViewBuilder func pane(_ k: PaneKind) -> some View {
+        switch k {
+        case .editor: EditorWindow(d: d)
+        case .terminal: TerminalWindow(d: d)
+        case .explorer: ExplorerWindow(d: d)
+        case .thought: ThoughtPane(d: d, agent: agent)
+        case .plan: PlanPane(steps: d.plan)
+        case .tests: TestsPane(run: d.tests)
+        case .runs: RunsPane(runs: d.runs)
+        case .diff: DiffPane(split: d.diff)
+        case .lightbox: LightboxPane(photos: d.photos)
+        case .files: FilesPane(heat: d.heat)
+        }
     }
 }
 
@@ -287,6 +302,7 @@ extension View {
     /// Reports this view's frame on the stage so the director can aim the cursor.
     func studioRegion(_ r: StudioDirector.Region, _ d: StudioDirector) -> some View {
         onGeometryChange(for: CGRect.self) { $0.frame(in: .named("stage")) } action: { d.frames[r] = $0 }
+            .onDisappear { d.frames[r] = nil }
     }
 }
 
@@ -316,7 +332,9 @@ struct StageBackdrop: View {
 }
 
 /// A desktop window: title bar with traffic lights, highlighted while the
-/// agent's cursor is working inside it.
+/// agent's cursor is working inside it. On the stage the lights work
+/// (close, minimise, pop out), the pin keeps it in its slot, dragging the
+/// title bar pops it out where you drop it, and a tap brings it forward.
 struct StudioWindow<Accessory: View, Content: View>: View {
     let title: String
     let icon: String
@@ -324,32 +342,77 @@ struct StudioWindow<Accessory: View, Content: View>: View {
     var active = false
     @ViewBuilder var accessory: Accessory
     @ViewBuilder var content: Content
+    @Environment(\.paneControls) private var controls
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
+            titleBar
+            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(dark ? Theme.ink : Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(active ? Theme.accent.opacity(0.6) : controls?.pinned == true ? Theme.accent.opacity(0.35) : Theme.lineStrong, lineWidth: active ? 1.5 : 1))
+        .shadow(color: .black.opacity(active ? 0.16 : 0.08), radius: active ? 14 : 8, y: 4)
+        .animation(.easeOut(duration: 0.25), value: active)
+    }
+
+    var titleBar: some View {
+        HStack(spacing: 8) {
+            if let c = controls {
+                HStack(spacing: 0) {
+                    light(Color(red: 0.98, green: 0.37, blue: 0.34), "xmark", "Close \(title)", c.close)
+                    light(Color(red: 0.99, green: 0.74, blue: 0.18), "minus", "Minimise \(title)", c.minimize)
+                    light(Color(red: 0.16, green: 0.79, blue: 0.25), c.floating ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                          c.floating ? "Dock \(title)" : "Pop out \(title)", c.toggleFloat)
+                }
+                .padding(.leading, -5)
+            } else {
                 HStack(spacing: 5) {
                     Circle().fill(Color(red: 0.98, green: 0.37, blue: 0.34))
                     Circle().fill(Color(red: 0.99, green: 0.74, blue: 0.18))
                     Circle().fill(Color(red: 0.16, green: 0.79, blue: 0.25))
                 }
                 .frame(height: 9).opacity(active ? 0.95 : 0.45)
-                Image(systemName: icon).font(.system(size: 11, weight: .medium))
-                Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 4)
-                accessory
             }
-            .foregroundStyle(dark ? Color.white.opacity(0.75) : Theme.textDim)
-            .padding(.horizontal, 10)
-            .frame(height: M.chrome)
-            .background(dark ? Color(white: 0.17) : Theme.raised)
-            content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            Image(systemName: icon).font(.system(size: 11, weight: .medium))
+            Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            accessory
+            if let c = controls, !c.floating {
+                Button { c.togglePin() } label: {
+                    Image(systemName: c.pinned ? "pin.fill" : "pin")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(c.pinned ? Theme.accent : (dark ? Theme.inkDim : Theme.textFaint))
+                        .rotationEffect(.degrees(c.pinned ? 0 : 35))
+                        .frame(width: 26, height: M.chrome).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(c.pinned ? "Unpin \(title)" : "Pin \(title)"))
+                .accessibilityIdentifier("studio.pin.\(c.kind.rawValue)")
+                .padding(.trailing, -6)
+            }
         }
-        .background(dark ? Color(Theme.terminalBg) : Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(active ? Theme.accent.opacity(0.6) : Theme.lineStrong, lineWidth: active ? 1.5 : 1))
-        .shadow(color: .black.opacity(active ? 0.16 : 0.08), radius: active ? 14 : 8, y: 4)
-        .animation(.easeOut(duration: 0.25), value: active)
+        .foregroundStyle(dark ? Theme.inkDim : Theme.textDim)
+        .padding(.horizontal, 10)
+        .frame(height: M.chrome)
+        .background(dark ? Theme.inkRaised : Theme.raised)
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .named("stage"))
+            .onChanged { v in controls?.dragChanged(v.translation) }
+            .onEnded { v in controls?.dragEnded(v.translation) },
+            including: controls == nil ? .none : .all)
+        .onTapGesture { controls?.bringForward() }
+    }
+
+    func light(_ color: Color, _ glyph: String, _ label: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Circle().fill(color.opacity(active ? 0.95 : 0.7)).frame(width: 10, height: 10)
+                .overlay(Image(systemName: glyph).font(.system(size: 5.5, weight: .black)).foregroundStyle(.black.opacity(0.55)))
+                .frame(width: 19, height: M.chrome).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
     }
 }
 
@@ -450,7 +513,12 @@ struct EditorWindow: View {
         } content: {
             VStack(spacing: 0) {
                 tabs
-                CodeArea(d: d)
+                GeometryReader { g in
+                    HStack(spacing: 0) {
+                        CodeArea(d: d)
+                        if g.size.width >= 460 && !d.lines.isEmpty { EditorMinimap(d: d).frame(width: 48).transition(.move(edge: .trailing)) }
+                    }
+                }
             }
         }
         .onChange(of: d.savedTick) { _, _ in
@@ -671,90 +739,6 @@ struct Shake: GeometryEffect {
 }
 
 // MARK: Side cards
-
-struct ThoughtCard: View {
-    let d: StudioDirector
-    let agent: Agent?
-    var thinking: Bool { !d.busy && agent?.status == "working" }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                AgentAvatar(kind: agent?.agent ?? "claude", status: agent?.status ?? "", size: 20)
-                Text(!d.thoughtDone ? "Writing" : thinking ? "Thinking" : "Last note").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textDim)
-                Spacer()
-                if !d.thoughtDone || thinking { TypingDots(color: agent?.tint ?? Theme.accent, size: 4) }
-            }
-            if d.thought.isEmpty {
-                Text(thinking ? "Working out what to do next…" : "Nothing said yet.").font(.system(size: 13)).foregroundStyle(Theme.textFaint)
-                Spacer(minLength: 0)
-            } else {
-                ScrollView {
-                    (Text(d.thought) + Text(d.thoughtDone ? "" : " ▍").foregroundStyle(agent?.tint ?? Theme.accent))
-                        .font(.system(size: 13)).foregroundStyle(Theme.text)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .defaultScrollAnchor(.bottom)
-                .scrollIndicators(.hidden)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(!d.thoughtDone ? (agent?.tint ?? Theme.accent).opacity(0.6) : Theme.lineStrong, lineWidth: !d.thoughtDone ? 1.5 : 1))
-        .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
-        .animation(.easeOut(duration: 0.25), value: d.thoughtDone)
-    }
-}
-
-struct StudioPlanCard: View {
-    let steps: [PlanStep]
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text("Plan").font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.textDim)
-                Spacer()
-                Text("\(steps.filter { $0.status == "completed" }.count)/\(steps.count)").font(.system(size: 11.5, weight: .semibold).monospacedDigit()).foregroundStyle(Theme.textFaint)
-            }
-            ProgressView(value: Double(steps.filter { $0.status == "completed" }.count), total: Double(max(steps.count, 1))).tint(Theme.green)
-            ForEach(steps.prefix(7)) { s in
-                HStack(alignment: .firstTextBaseline, spacing: 7) {
-                    Group {
-                        switch s.status {
-                        case "completed": Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
-                        case "in_progress": Image(systemName: "circle.dotted").foregroundStyle(Theme.blue).symbolEffect(.pulse)
-                        default: Image(systemName: "circle").foregroundStyle(Theme.textFaint)
-                        }
-                    }
-                    .font(.system(size: 12))
-                    .contentTransition(.symbolEffect(.replace))
-                    Text(s.text).font(.system(size: 12.5, weight: s.status == "in_progress" ? .semibold : .regular))
-                        .foregroundStyle(s.status == "completed" ? Theme.textFaint : Theme.text).lineLimit(2)
-                }
-                .transition(.move(edge: .trailing).combined(with: .opacity))
-            }
-        }
-        .padding(12)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.lineStrong))
-        .shadow(color: .black.opacity(0.08), radius: 8, y: 4)
-    }
-}
-
-struct PhotoStack: View {
-    let photos: [StudioPhoto]
-    var body: some View {
-        ZStack {
-            ForEach(Array(photos.enumerated()), id: \.element.id) { i, p in
-                Polaroid(photo: p, compact: true)
-                    .frame(width: 150)
-                    .rotationEffect(.degrees([-7.0, 4.0, -2.0][i % 3]))
-                    .offset(x: CGFloat(i) * 28 - 28, y: CGFloat(i) * 6)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 130)
-    }
-}
 
 struct Polaroid: View {
     let photo: StudioPhoto
