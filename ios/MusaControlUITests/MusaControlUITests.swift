@@ -23,7 +23,7 @@ final class MusaControlUITests: XCTestCase {
     func testEverySectionLandscapeAndPortrait() {
         for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
             for appearance in ["dark", "light"] {
-                let sections = orientation == .portrait && appearance == "light" ? ["home", "agents", "settings"] : ["home", "workspaces", "agents", "terminal", "files", "visuals", "git", "settings"]
+                let sections = orientation == .portrait && appearance == "light" ? ["home", "agents", "settings"] : ["home", "workspaces", "agents", "terminal", "files", "visuals", "git", "machines", "settings"]
                 for s in sections {
                     let app = launch(s, orientation: orientation, appearance: appearance)
                     XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
@@ -207,5 +207,30 @@ final class MusaControlUITests: XCTestCase {
         app.buttons["studio.scrub.live"].tap()
         sleep(2)
         snap(app, "scrub-live-again")
+    }
+
+    /// First run for a new user: welcome → add a computer → SSH form.
+    func testOnboardingAndAddComputer() {
+        for appearance in ["light", "dark"] {
+            let app = launch("home", orientation: .landscapeLeft, appearance: appearance, extra: ["-onboarding"])
+            XCTAssertTrue(app.buttons["welcome.ssh"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.buttons["welcome.email"].exists)
+            snap(app, "onboarding-\(appearance)-welcome")
+            app.buttons["welcome.ssh"].tap()
+            XCTAssertTrue(app.buttons["add.linux"].waitForExistence(timeout: 5))
+            snap(app, "onboarding-\(appearance)-add")
+            app.buttons["add.linux"].tap()
+            XCTAssertTrue(app.textFields["ssh.host"].waitForExistence(timeout: 5))
+            snap(app, "onboarding-\(appearance)-ssh")
+            app.terminate()
+        }
+    }
+
+    func testMachinesAndProviders() {
+        let app = launch("machines", orientation: .landscapeLeft, appearance: "dark")
+        XCTAssertTrue(app.staticTexts["Musa Studios VPS"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Claude Code"].waitForExistence(timeout: 8))
+        snap(app, "machines-dark")
+        app.terminate()
     }
 }

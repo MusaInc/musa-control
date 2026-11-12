@@ -13,6 +13,9 @@
 	<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key><true/>
 	<key>ITSAppUsesNonExemptEncryption</key><false/>
+	<!-- SSH machines: the app talks to the companion over plain HTTP on
+	     127.0.0.1, the local end of its own SSH tunnel (encrypted by SSH). -->
+	<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 	<key>UILaunchScreen</key><dict><key>UIColorName</key><string>LaunchBackground</string></dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

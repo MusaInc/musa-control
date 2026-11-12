@@ -35,13 +35,22 @@ struct MusaControlApp: App {
                 .environment(terminals)
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .tint(Theme.accent)
-                .task { if app.isPaired { await app.connect() } }
+                .task {
+                    if app.isPaired { await app.connect() }
+                    if CloudAuth.token != nil { await Account.shared.refresh(); app.reloadMachines() }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .openFromNotification)) { n in
                     // Deep link: the exact agent session, with its approval in view.
                     if let s = n.userInfo?["session"] as? String, !s.isEmpty {
-                        app.focusApproval = (n.userInfo?["view"] as? String) == "approval"
-                        app.openAgent(s)
-                        Task { await app.refreshAgents() }
+                        let view = n.userInfo?["view"] as? String
+                        let cloudId = n.userInfo?["machine"] as? String ?? ""
+                        Task {
+                            // A push from another linked machine: switch to it first.
+                            if !cloudId.isEmpty, app.activeMachine?.cloudId != cloudId, let m = app.machines.first(where: { $0.cloudId == cloudId }) { await app.activate(m) }
+                            app.focusApproval = view == "approval"
+                            app.openAgent(s)
+                            await app.refreshAgents()
+                        }
                     }
                 }
         }
@@ -61,7 +70,8 @@ struct MusaControlApp: App {
         .commands {
             CommandMenu("Navigate") {
                 ForEach(AppSection.allCases) { s in
-                    Button(s.title) { app.go(s) }.keyboardShortcut(s.shortcut, modifiers: .command)
+                    if let k = s.shortcut { Button(s.title) { app.go(s) }.keyboardShortcut(k, modifiers: .command) }
+                    else { Button(s.title) { app.go(s) } }
                 }
                 Divider()
                 Button(app.sidebarExpanded ? "Collapse Sidebar" : "Show Sidebar") { withAnimation(.snappy(duration: 0.22)) { app.sidebarExpanded.toggle(); app.sidebarOverlay.toggle() } }.keyboardShortcut("s", modifiers: [.control, .command])

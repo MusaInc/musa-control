@@ -11,8 +11,11 @@ enum WebSessionCookie {
         let s = try await client.send("POST", "/api/web-session", [:], as: WebSession.self)
         var props: [HTTPCookiePropertyKey: Any] = [
             .name: s.cookie.name, .value: s.cookie.value, .domain: client.host, .path: s.cookie.path,
-            .secure: "TRUE", .expires: Date().addingTimeInterval(s.cookie.maxAge),
+            .expires: Date().addingTimeInterval(s.cookie.maxAge),
         ]
+        // Secure everywhere except an SSH machine's loopback tunnel (plain
+        // http://127.0.0.1, already inside the encrypted SSH connection).
+        if s.cookie.secure ?? true { props[.secure] = "TRUE" }
         props[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
         if let c = HTTPCookie(properties: props) { await store.setCookie(c) }
         issuedAt = Date()

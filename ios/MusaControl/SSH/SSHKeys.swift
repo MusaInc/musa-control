@@ -50,8 +50,16 @@ struct SSHSettings: Codable, Equatable {
     var pinnedFingerprints: [String]
     var keyInstalled: Bool
 
+    /// SSH settings of the active machine: an SSH machine carries its own
+    /// (pinned when it was added); the personal server keeps the settings it
+    /// got from its gateway; relay machines have none (their terminal runs
+    /// over the relay's WebSocket instead).
     static var stored: SSHSettings? {
-        get { UserDefaults.standard.data(forKey: "sshSettings").flatMap { try? JSONDecoder().decode(SSHSettings.self, from: $0) } }
+        get {
+            if let m = MachineStore.active, m.kind == .ssh { return m.sshSettings }
+            if let m = MachineStore.active, !m.isPersonal { return nil }
+            return UserDefaults.standard.data(forKey: "sshSettings").flatMap { try? JSONDecoder().decode(SSHSettings.self, from: $0) }
+        }
         set { UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "sshSettings") }
     }
 }

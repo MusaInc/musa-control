@@ -614,3 +614,67 @@ final class ScrubberTests: XCTestCase {
         XCTAssertEqual(Scrub.nextRate(8), 1, "8× wraps to 1×")
     }
 }
+
+/// Multi-machine support: models, migration, scoping and the account nonce.
+final class MachineTests: XCTestCase {
+    override func setUp() {
+        for k in ["machines.v1", "machines.active", "machines.migrated", "serverURL"] { UserDefaults.standard.removeObject(forKey: k) }
+    }
+
+    func testNewGatewayFieldsDecodeAndOldOnesStillDo() throws {
+        let old = #"{"id":"a","name":"iPad","expiresAt":1,"server":{"version":"0.1.0","host":"musastudios.co.uk"}}"#
+        let me = try JSONDecoder().decode(Me.self, from: Data(old.utf8))
+        XCTAssertNil(me.capabilities)
+        XCTAssertEqual(me.server?.host, "musastudios.co.uk")
+        let new = #"{"id":"a","name":"iPad","expiresAt":1,"via":"relay","server":{"profile":"companion","name":"box"},"capabilities":{"terminal":true,"relay":"online"}}"#
+        let m2 = try JSONDecoder().decode(Me.self, from: Data(new.utf8))
+        XCTAssertEqual(m2.via, "relay"); XCTAssertEqual(m2.capabilities?.terminal, true)
+        let providers = try JSONDecoder().decode([ProviderInfo].self, from: FixtureTransport.fixture("providers")!)
+        XCTAssertEqual(providers.map(\.id), ["claude", "codex", "gemini"])
+        XCTAssertEqual(providers[0].npmPackage, "@anthropic-ai/claude-code")
+        let ws = try JSONDecoder().decode(WebSession.self, from: Data(#"{"cookie":{"name":"mc_web","value":"v","path":"/","maxAge":10,"secure":false},"base":"http://127.0.0.1:5"}"#.utf8))
+        XCTAssertEqual(ws.cookie.secure, false)
+    }
+
+    func testLegacyPairingBecomesThePersonalMachineWithoutRepairing() {
+        Keychain.setString("mc_legacy", for: "deviceToken")
+        UserDefaults.standard.set("https://example.org/control", forKey: "serverURL")
+        MachineStore.migrateIfNeeded()
+        let m = MachineStore.active
+        XCTAssertEqual(m?.id, Machine.personalId)
+        XCTAssertEqual(m?.url, "https://example.org/control")
+        XCTAssertEqual(m?.token, "mc_legacy", "same Keychain item as before")
+        XCTAssertEqual(MachineStore.scoped("terminalTabs", Machine.personalId), "terminalTabs")
+        XCTAssertEqual(MachineStore.scoped("terminalTabs", "ssh-1"), "terminalTabs.ssh-1")
+        MachineStore.migrateIfNeeded()
+        XCTAssertEqual(MachineStore.all.count, 1, "runs once")
+        Keychain.delete("deviceToken")
+    }
+
+    func testMachinesKeepTheirOwnTokensAndSSHSettings() {
+        let a = Machine(id: "ssh-a", name: "A", kind: .ssh, host: "a.example", port: 2222, user: "dev", pins: ["SHA256:x"], remotePort: 8171, platform: "linux", addedAt: 0)
+        let b = Machine(id: "relay-b", name: "B", kind: .relay, cloudId: "b-cloud", platform: "darwin", addedAt: 0)
+        Keychain.setString("mc_a", for: a.tokenKey)
+        MachineStore.upsert(a); MachineStore.upsert(b)
+        MachineStore.activeId = a.id
+        XCTAssertEqual(SSHSettings.stored?.host, "a.example")
+        XCTAssertEqual(SSHSettings.stored?.port, 2222)
+        MachineStore.activeId = b.id
+        XCTAssertNil(SSHSettings.stored, "relay machines have no SSH; terminals use the relay socket")
+        XCTAssertEqual(b.symbol, "laptopcomputer")
+        XCTAssertTrue(CloudAuth.machineBase("b-cloud").absoluteString.hasSuffix("/m/b-cloud"))
+        MachineStore.remove(a.id)
+        XCTAssertNil(Keychain.string("machine.ssh-a.token"), "removing a machine deletes its token")
+        MachineStore.remove(b.id)
+    }
+
+    func testAppleNonceIsHashedForApple() {
+        let raw = Account.randomNonce()
+        XCTAssertGreaterThan(raw.count, 20)
+        XCTAssertEqual(Account.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+
+    func testNineShortcutsAtMost() {
+        XCTAssertEqual(AppSection.allCases.compactMap(\.shortcut).count, min(9, AppSection.allCases.count))
+    }
+}

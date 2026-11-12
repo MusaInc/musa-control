@@ -33,6 +33,7 @@ struct FixtureTransport: GatewayTransport {
 
     static let routes: [(method: String, pattern: String, file: String)] = [
         ("GET", "^/api/me$", "me.json"),
+        ("GET", "^/api/providers$", "providers.json"),
         ("GET", "^/api/overview$", "overview.json"),
         ("GET", "^/api/projects$", "projects.json"),
         ("GET", "^/api/agents$", "agents.json"),

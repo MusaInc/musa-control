@@ -9,7 +9,7 @@ name: iOS
 on:
   push:
     branches: [main]
-    paths: ["ios/**", ".github/workflows/ios.yml", "tools/asc.py"]
+    paths: ["ios/**", "server/src/**", "server/bin/**", ".github/workflows/ios.yml", "tools/asc.py", "tools/pack_companion.sh"]
   pull_request:
     paths: ["ios/**"]
   workflow_dispatch:
@@ -63,6 +63,12 @@ jobs:
           xcode=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
           sudo xcode-select -s "$xcode/Contents/Developer"
           xcodebuild -version
+
+      - name: Pack the companion (uploaded to machines by the app over SSH)
+        working-directory: .
+        run: |
+          (cd server && npm ci --omit=dev --no-audit --no-fund)
+          sh tools/pack_companion.sh
 
       - name: Generate the Xcode project
         run: |
@@ -188,6 +194,12 @@ jobs:
         run: |
           python3 ../tools/asc.py check-app "$BUNDLE_ID"
           python3 ../tools/asc.py min-version "$BUNDLE_ID" "${{ inputs.version }}"
+
+      - name: Pack the companion (uploaded to machines by the app over SSH)
+        working-directory: .
+        run: |
+          (cd server && npm ci --omit=dev --no-audit --no-fund)
+          sh tools/pack_companion.sh
 
       - name: Generate the Xcode project
         run: |

@@ -125,10 +125,20 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// Sends the token and preferences to the gateway; returns its status.
     @discardableResult
     func syncRegistration() async -> PushStatus? {
-        guard let client = Self.backgroundClient(), let token = UserDefaults.standard.string(forKey: "notify.apnsToken") else { return nil }
+        guard let token = UserDefaults.standard.string(forKey: "notify.apnsToken") else { return nil }
+        // Machines linked to the account push through the account service.
+        var cloudActive = false
+        if CloudAuth.token != nil {
+            let cats = Dictionary(uniqueKeysWithValues: Category.allCases.map { ($0.rawValue, prefs.on($0)) })
+            if let c = try? await CloudAuth.client().send("POST", "/v1/push/register", ["token": token, "environment": Self.apnsEnvironment, "prefs": ["categories": cats]], as: CloudPushStatus.self) {
+                cloudActive = c.serverConfigured && c.registered
+            }
+        }
+        // The personal gateway sends its own pushes with its own APNs key.
+        guard let client = Self.backgroundClient() else { pushActive = cloudActive; return nil }
         let prefsData: Any = (try? JSONEncoder().encode(prefs)).flatMap { try? JSONSerialization.jsonObject(with: $0) } ?? [String: Any]()
         let s = try? await client.send("POST", "/api/push/register", ["token": token, "environment": Self.apnsEnvironment, "prefs": prefsData], as: PushStatus.self)
-        if let s { pushActive = s.serverConfigured && s.registered }
+        pushActive = cloudActive || (s.map { $0.serverConfigured && $0.registered } ?? false)
         return s
     }
 
@@ -153,7 +163,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         return "production"
     }
 
-    static func backgroundClient() -> GatewayClient? {
+    /// The personal (password-paired) gateway, or, for a push that came
+    /// through the account service, the relay route to the machine it names.
+    static func backgroundClient(machine cloudId: String? = nil) -> GatewayClient? {
+        if let cloudId, !cloudId.isEmpty {
+            guard let t = CloudAuth.token else { return nil }
+            return GatewayClient(base: CloudAuth.machineBase(cloudId), token: t)
+        }
         guard let token = Keychain.string("deviceToken"), let base = URL(string: UserDefaults.standard.string(forKey: "serverURL") ?? "") else { return nil }
         return GatewayClient(base: base, token: token)
     }
@@ -230,7 +246,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             await act(approve: response.actionIdentifier == Self.approveAction, mc: mc, title: content.title)
         default:
             await MainActor.run {
-                NotificationCenter.default.post(name: .openFromNotification, object: nil, userInfo: ["session": session, "view": mc["view"] as? String ?? "activity"])
+                NotificationCenter.default.post(name: .openFromNotification, object: nil, userInfo: ["session": session, "view": mc["view"] as? String ?? "activity", "machine": mc["machine"] as? String ?? ""])
             }
         }
     }
@@ -243,7 +259,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             c.userInfo = ["mc": ["session": mc["session"] as? String ?? "", "view": "activity"]]
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "mc-result-\(UUID().uuidString)", content: c, trigger: nil))
         }
-        guard let nonce = mc["nonce"] as? String, let client = Self.backgroundClient() else {
+        guard let nonce = mc["nonce"] as? String, let client = Self.backgroundClient(machine: mc["machine"] as? String) else {
             report("Couldn't answer", "Open Musa Control to review this request."); return
         }
         let bg = await MainActor.run { UIApplication.shared.beginBackgroundTask(withName: "approval") }
@@ -266,6 +282,8 @@ struct PushStatus: Codable, Equatable {
     let lastError: String?
     let prefs: Notifier.Prefs?
 }
+
+struct CloudPushStatus: Codable { let serverConfigured: Bool; let registered: Bool; let reason: String? }
 
 struct PushActionResult: Codable { let ok: Bool; let answered: String?; let action: String? }
 

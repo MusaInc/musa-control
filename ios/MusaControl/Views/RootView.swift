@@ -13,7 +13,7 @@ struct RootView: View {
         @Bindable var app = app
         Group {
             if app.phase == .unpaired {
-                PairingView()
+                WelcomeView()
             } else if Device.isPhone {
                 PhoneShell()
             } else {
@@ -68,6 +68,7 @@ struct SectionDetail: View {
             case .files: FilesSectionView()
             case .visuals: VisualsView()
             case .git: GitBuildsView()
+            case .machines: MachinesView()
             case .settings: SettingsView()
             }
         }
@@ -125,8 +126,7 @@ struct Sidebar: View {
         if style == .full {
             HStack(spacing: 9) {
                 Image("SidebarMark").resizable().frame(width: 24, height: 24).clipShape(RoundedRectangle(cornerRadius: 6))
-                Text("Musa Control").font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                ConnectionDot()
+                MachineSwitcher()
                 Spacer(minLength: 0)
                 IconButton(systemName: "sidebar.left", help: compact ? "Close sidebar" : "Collapse sidebar (⌃⌘S)") { toggle() }
                     .accessibilityIdentifier("sidebar.toggle")
@@ -269,5 +269,32 @@ struct EventBanner: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.lineStrong))
         .frame(maxWidth: 560).padding(.top, 10)
         .task(id: event.stableId) { try? await Task.sleep(nanoseconds: 6_000_000_000); if app.banner?.stableId == event.stableId { app.banner = nil } }
+    }
+}
+
+/// Sidebar title: the active computer, with every saved one a tap away.
+struct MachineSwitcher: View {
+    @Environment(AppModel.self) private var app
+    var body: some View {
+        Menu {
+            ForEach(app.machines) { m in
+                Button { Task { await app.activate(m) } } label: {
+                    if m.id == app.activeMachine?.id { Label(m.name, systemImage: "checkmark") } else { Label(m.name, systemImage: m.symbol) }
+                }
+            }
+            Divider()
+            Button { app.showAddMachine = true; app.go(.machines) } label: { Label("Add a computer…", systemImage: "plus") }
+            Button { app.go(.machines) } label: { Label("Machines & AI", systemImage: "desktopcomputer") }
+        } label: {
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(app.activeMachine?.name ?? "Musa Control").font(.system(size: 14.5, weight: .semibold)).lineLimit(1).foregroundStyle(Theme.text)
+                    Text(app.activeMachine?.kindLabel ?? "").font(.system(size: 11)).foregroundStyle(Theme.textFaint).lineLimit(1)
+                }
+                ConnectionDot()
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.textFaint)
+            }
+        }
+        .accessibilityIdentifier("machine.switcher")
     }
 }

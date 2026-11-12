@@ -6,5 +6,10 @@
 	     "production" when the archive is exported for TestFlight/App Store. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Sign in with Apple for Musa Control accounts. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 </dict>
 </plist>

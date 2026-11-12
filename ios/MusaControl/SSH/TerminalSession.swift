@@ -50,6 +50,7 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
     @ObservationIgnored let view: SwiftTerm.TerminalView
     @ObservationIgnored private var client: SSHClient?
     @ObservationIgnored private var writer: TTYStdinWriter?
+    @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var wantOpen = false
     @ObservationIgnored private var size = (cols: 120, rows: 36)
@@ -80,6 +81,7 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
         wantOpen = false
         task?.cancel(); task = nil
         let c = client; client = nil; writer = nil
+        socket?.cancel(with: .goingAway, reason: nil); socket = nil
         Task { try? await c?.close() }
         state = .closed
     }
@@ -109,7 +111,37 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
     }
     @ObservationIgnored private var lastError: String?
 
+    /// Machines reached through the relay have no SSH from the iPad: the
+    /// same tmux session is attached over the relay's WebSocket instead.
+    private func connectRelay(_ m: Machine) async throws {
+        guard let token = CloudAuth.token, let cid = m.cloudId else { throw SSHFailure.notConfigured }
+        let t0 = Date()
+        var comps = URLComponents(url: CloudAuth.machineBase(cid).appendingPathComponent("api/terminal/ws"), resolvingAgainstBaseURL: false)!
+        comps.scheme = comps.scheme == "http" ? "ws" : "wss"
+        var items = [URLQueryItem(name: "session", value: tmuxName), URLQueryItem(name: "cols", value: String(size.cols)), URLQueryItem(name: "rows", value: String(size.rows))]
+        if let directory { items.append(URLQueryItem(name: "dir", value: directory)) }
+        comps.queryItems = items
+        var req = URLRequest(url: comps.url!)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let task = URLSession.shared.webSocketTask(with: req)
+        socket = task
+        task.resume()
+        let term = view
+        var first = true
+        defer { if socket === task { socket = nil } }
+        while true {
+            let msg = try await task.receive()
+            if first { first = false; state = .connected; lastLatencyMs = Int(Date().timeIntervalSince(t0) * 1000) }
+            switch msg {
+            case .data(let d): let bytes = [UInt8](d); term.feed(byteArray: bytes[...])
+            case .string(let s): term.feed(text: s)
+            @unknown default: break
+            }
+        }
+    }
+
     private func connectOnce() async throws {
+        if let m = MachineStore.active, m.kind == .relay { try await connectRelay(m); return }
         guard let s = SSHSettings.stored, s.keyInstalled, !s.pinnedFingerprints.isEmpty else { throw SSHFailure.notConfigured }
         let t0 = Date()
         let validator = PinnedHostKeyValidator(pins: s.pinnedFingerprints)
@@ -156,6 +188,7 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
     func send(text: String) { send(bytes: Array(text.utf8)) }
 
     private func send(bytes: [UInt8]) {
+        if let socket { socket.send(.data(Data(bytes))) { _ in }; return }
         guard let writer else { return }
         Task { try? await writer.write(ByteBuffer(bytes: bytes)) }
     }
@@ -169,6 +202,7 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
     nonisolated func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
         Task { @MainActor in
             self.size = (newCols, newRows)
+            if let ws = self.socket { ws.send(.string("{\"type\":\"resize\",\"cols\":\(newCols),\"rows\":\(newRows)}")) { _ in } }
             if let w = self.writer { Task { try? await w.changeSize(cols: newCols, rows: newRows, pixelWidth: 0, pixelHeight: 0) } }
         }
     }
@@ -204,11 +238,23 @@ final class TerminalStore {
     /// reconnected all of them on each foreground, leaking SSH connections.
     @ObservationIgnored private var panelSessions: [String: TerminalSession] = [:]
 
-    init() {
-        let saved = UserDefaults.standard.stringArray(forKey: "terminalTabs") ?? []
+    private var tabsKey: String { MachineStore.scoped("terminalTabs", MachineStore.activeId) }
+
+    init() { load() }
+
+    /// Tabs belong to a machine: switching detaches this machine's terminals
+    /// (their tmux sessions keep running) and restores the other's.
+    func switchMachine(_ id: String) {
+        (sessions + Array(panelSessions.values)).forEach { $0.close() }
+        sessions = []; panelSessions = [:]; splitWith = nil; selected = nil
+        load()
+    }
+
+    private func load() {
+        let saved = UserDefaults.standard.stringArray(forKey: tabsKey) ?? []
         let tabs = saved.filter { !$0.hasPrefix("mc-ws-") }
         for name in tabs { sessions.append(TerminalSession(tmuxName: name, fontSize: fontSize)) }
-        if tabs.count != saved.count { UserDefaults.standard.set(tabs, forKey: "terminalTabs") }
+        if tabs.count != saved.count { UserDefaults.standard.set(tabs, forKey: tabsKey) }
         selected = sessions.first?.id
     }
 
@@ -231,7 +277,7 @@ final class TerminalStore {
     /// rest reconnect when shown (TerminalPane.onAppear).
     func resumeVisible() { (sessions + Array(panelSessions.values)).forEach { if $0.view.window != nil { $0.open() } } }
 
-    func persist() { UserDefaults.standard.set(sessions.map(\.tmuxName), forKey: "terminalTabs") }
+    func persist() { UserDefaults.standard.set(sessions.map(\.tmuxName), forKey: tabsKey) }
 
     @discardableResult
     func open(tmux: String, title: String? = nil, directory: String? = nil) -> TerminalSession {

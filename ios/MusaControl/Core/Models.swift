@@ -354,9 +354,22 @@ struct PreviewsResponse: Codable {
 struct HostKey: Codable, Hashable { let type: String; let fingerprint: String; let key: String }
 struct HostKeys: Codable { let host: String; let port: Int; let user: String; let keys: [HostKey] }
 struct PairResponse: Codable { let token: String; let deviceId: String; let expiresAt: Double }
-struct Me: Codable { let id: String; let name: String; let expiresAt: Double }
+/// /api/me. Everything after expiresAt is newer than the original gateway
+/// (and absent on one that hasn't been restarted since), so all optional.
+struct Me: Codable {
+    struct Server: Codable, Hashable { let version: String?; let host: String?; let profile: String?; let name: String?; let user: String?; let home: String? }
+    let id: String; let name: String; let expiresAt: Double
+    let via: String?
+    let server: Server?
+    let capabilities: Capabilities?
+}
+struct Capabilities: Codable, Hashable {
+    let profile: String?; let platform: String?; let os: String?; let arch: String?; let node: String?
+    let terminal: Bool?; let terminalOverSocket: Bool?; let agents: Bool?; let git: Bool?; let github: Bool?
+    let remoteDesktop: Bool?; let previews: Bool?; let services: Bool?; let push: Bool?; let relay: String?
+}
 struct DeviceRow: Codable, Identifiable, Hashable { let id: String; let name: String; let created_at: Double; let last_seen: Double?; let expires_at: Double; let revoked: Int }
-struct WebSession: Codable { struct Cookie: Codable { let name: String; let value: String; let path: String; let maxAge: Double }; let cookie: Cookie }
+struct WebSession: Codable { struct Cookie: Codable { let name: String; let value: String; let path: String; let maxAge: Double; let secure: Bool? }; let cookie: Cookie; let base: String? }
 struct TmuxSession: Codable, Hashable, Identifiable { var id: String { name }; let name: String; let created: Double; let attached: Int; let windows: Int; let activity: Double }
 struct TmuxList: Codable { let sessions: [TmuxSession] }
 struct OK: Codable { let ok: Bool? }

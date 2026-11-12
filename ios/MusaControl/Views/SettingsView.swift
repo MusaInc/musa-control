@@ -16,13 +16,15 @@ struct SettingsView: View {
     var body: some View {
         Form {
             SwiftUI.Section("Connection") {
-                LabeledContent("Gateway", value: app.serverURL.absoluteString)
+                LabeledContent("Computer", value: app.activeMachine?.name ?? "—")
+                LabeledContent(app.activeMachine?.kind == .ssh ? "Tunnel" : "Gateway", value: app.activeMachine?.kind == .ssh ? (app.activeMachine?.subtitle ?? "") : app.client.base.absoluteString)
+                Button("Machines & AI…") { app.go(.machines) }
                 LabeledContent("Status") { HStack { ConnectionDot(); Text(statusText) } }
                 if let me { LabeledContent("This device", value: me.name); LabeledContent("Token expires", value: Date(timeIntervalSince1970: me.expiresAt / 1000).formatted(date: .abbreviated, time: .omitted)) }
                 Button("Reconnect") { Task { await app.connect() } }
-                Button("Unpair this \(Device.name)", role: .destructive) { confirmUnpair = true }
+                if app.activeMachine?.kind != .relay { Button("Forget this computer", role: .destructive) { confirmUnpair = true } }
             }
-            SwiftUI.Section {
+            if app.activeMachine?.kind != .relay { SwiftUI.Section {
                 ForEach(devices) { d in
                     HStack {
                         VStack(alignment: .leading) {
@@ -34,9 +36,9 @@ struct SettingsView: View {
                         else if d.id != me?.id { Button("Revoke", role: .destructive) { Task { _ = try? await app.client.raw(app.client.request("DELETE", "/api/devices/\(d.id)")); await load() } } }
                     }
                 }
-            } header: { Text("Paired devices") } footer: { Text("Revoking a device also removes its SSH key from the server.") }
+            } header: { Text("Paired devices") } footer: { Text("Revoking a device also removes its SSH key from the server.") } }
 
-            SwiftUI.Section {
+            if app.activeMachine?.isPersonal ?? true { SwiftUI.Section {
                 LabeledContent("This \(Device.name)'s key", value: SSHKeys.ownFingerprint).font(Theme.monoSmall)
                 if let s = ssh {
                     LabeledContent("Server", value: "\(s.user)@\(s.host):\(s.port)")
@@ -48,6 +50,12 @@ struct SettingsView: View {
                 if let sshNote { Text(sshNote).font(Theme.caption).foregroundStyle(Theme.textDim) }
             } header: { Text("SSH") } footer: {
                 Text("The key is generated on this \(Device.name) and stored in the Keychain; only the public half is sent. Host keys are pinned from the gateway over TLS, and every connection is verified against them.")
+            } } else if app.activeMachine?.kind == .ssh, let m = app.activeMachine {
+                SwiftUI.Section {
+                    LabeledContent("This \(Device.name)'s key", value: SSHKeys.ownFingerprint).font(Theme.monoSmall)
+                    ForEach(m.pins ?? [], id: \.self) { fp in LabeledContent("Pinned host key", value: fp).font(Theme.monoSmall) }
+                    Button("Open a test terminal") { app.go(.terminal); terminals.newShell() }
+                } header: { Text("SSH") } footer: { Text("Pinned when the computer was added. A changed host key is refused.") }
             }
 
             SwiftUI.Section {
@@ -78,7 +86,9 @@ struct SettingsView: View {
 
             SwiftUI.Section("About") {
                 LabeledContent("Version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
-                Text("Musa Control runs nothing on the \(Device.name) itself: agents, builds, tmux and the desktop all live on the server.").font(Theme.caption).foregroundStyle(Theme.textDim)
+                Text("Musa Control runs nothing on the \(Device.name) itself: agents, builds, tmux and the desktop all live on your computers.").font(Theme.caption).foregroundStyle(Theme.textDim)
+                Link("Privacy policy", destination: URL(string: "https://musastudios.co.uk/control/privacy")!)
+                Link("Support", destination: URL(string: "https://musastudios.co.uk/control/support")!)
             }
         }
         .scrollContentBackground(.hidden).background(Theme.bg)
@@ -87,7 +97,7 @@ struct SettingsView: View {
             Button("Unpair", role: .destructive) {
                 Task { if let id = me?.id { _ = try? await app.client.raw(app.client.request("DELETE", "/api/devices/\(id)")) }; app.unpair() }
             }
-        } message: { Text("Revokes this \(Device.name)'s token and SSH key on the server. Running agents and sessions are not affected.") }
+        } message: { Text(app.activeMachine?.kind == .relay ? "Removes this computer from the \(Device.name). It stays linked to your account." : "Revokes this \(Device.name)'s token and SSH key on the computer. Running agents and sessions are not affected.") }
     }
 
     var statusText: String {
