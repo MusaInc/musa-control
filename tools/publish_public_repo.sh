@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 # 1. Refuse to publish if any commit, message or file anywhere still names client work.
 PATTERN="$(cat "$HOME/.config/musa-control/private-terms")"  # private; never in the repo
 for b in main multi-user; do git rev-parse -q --verify "$b" >/dev/null || { echo "branch $b missing"; exit 1; }; done
-HITS=$(git log main multi-user -p --format='%B' | grep -ciE "$PATTERN" || true)
+HITS=$(git log main multi-user -p --format='%an %ae %cn %ce %B' | grep -ciE "$PATTERN" || true)
 [ "$HITS" = "0" ] || { echo "Refusing: $HITS mention(s) of client work in history. Run tools/scrub_history.sh first."; exit 1; }
 git grep -qiE "$PATTERN" main multi-user && { echo "Refusing: client names in current files."; exit 1; }
 echo "history check: clean"

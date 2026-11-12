@@ -9,6 +9,8 @@ PY="$HOME/.config/musa-control/scrub_text.py"            # private replacement l
 PATTERN="$(cat "$HOME/.config/musa-control/private-terms")"
 FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch -f \
   --tree-filter "git ls-files -z | xargs -0 grep -lIiE '$PATTERN' 2>/dev/null | tr '\n' '\0' | xargs -0 -r python3 -I '$PY'" \
-  --msg-filter "python3 -I '$PY'" -- main multi-user
+  --msg-filter "python3 -I '$PY'" \
+  --env-filter 'export GIT_AUTHOR_NAME=MusaInc GIT_AUTHOR_EMAIL=support@musastudios.co.uk GIT_COMMITTER_NAME=MusaInc GIT_COMMITTER_EMAIL=support@musastudios.co.uk' \
+  -- main multi-user
 git for-each-ref --format='%(refname)' refs/original | xargs -r -n1 git update-ref -d
-echo "Remaining mentions: $(git log main multi-user -p --format='%B' | grep -ciE "$PATTERN" || true)"
+echo "Remaining mentions: $(git log main multi-user -p --format='%an %ae %cn %ce %B' | grep -ciE "$PATTERN" || true)"
