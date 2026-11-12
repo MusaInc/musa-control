@@ -59,7 +59,7 @@ test("companion profile: generic defaults, never the Musa Studios ones", () => {
   assert.equal(c.passwordHashFile, null);
   assert.equal(c.publicBase, null);
   assert.deepEqual(c.services, []);
-  assert.ok(!JSON.stringify(c.roots).includes("projects"));
+  assert.ok(!c.roots.some((r) => r.path.startsWith("/srv/")), "no server-specific roots");
   const p = loadConfig({ dataDir: path.join(tmp, "cfgcheck2") });
   assert.equal(p.profile, "personal");
   assert.equal(p.publicBase, "https://musastudios.co.uk/control");

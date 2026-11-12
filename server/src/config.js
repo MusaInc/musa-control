@@ -27,12 +27,12 @@ const defaults = {
   // Same credential as the workspace sign-in (dashboard auth.js). Read-only.
   passwordHashFile: "/home/dev/caddy/dashboard-password.hash",
   deviceTokenDays: 90,
-  // Directories that hold projects. Every git repository at the given depth
+  // Directories that hold projects (the VPS adds its own, private ones in
+  // ~/.config/musa-control/config.json). Every git repository at the given depth
   // becomes a project; `extra` adds non-repo or nested folders by hand.
   roots: [
     { path: "~/workspace/projects", depth: 1, requireGit: false },
     { path: "~", depth: 1, requireGit: true },
-    { path: "/srv/projects", depth: 1, requireGit: true },
     { path: "~/musastudios", depth: 1, requireGit: true },
     { path: "~/firedev-demo", depth: 1, requireGit: true },
   ],
@@ -42,7 +42,6 @@ const defaults = {
   ],
   exclude: [
     "~/workspace", "~/workspace/projects/World Cams", "~/workspace/projects/CitySwing-cleanup",
-    "~/sample-push", "~/sample-ready",
   ],
   // Public previews already served by Caddy (project directory basename → URLs).
   previews: {
