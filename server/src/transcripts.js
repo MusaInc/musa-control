@@ -179,3 +179,77 @@ export function parseCodexLine(line, state = {}) {
   }
   return out;
 }
+
+// ---------------- Gemini CLI ----------------
+// ~/.gemini/tmp/<project>/chats/session-*.jsonl: a metadata record
+// ({sessionId, projectHash, startTime}), then message records
+// ({id, type: user|gemini|info|warning|error, content, toolCalls, thoughts}).
+// A message is appended again whenever it changes (tool status, tokens), so
+// everything here is keyed by message/tool id and emitted once, when final.
+const geminiText = (c) => (Array.isArray(c) ? c.map((p) => (typeof p === "string" ? p : p?.text || "")).join("") : typeof c === "string" ? c : String(c?.text || ""));
+const GEMINI_EDIT = /^(write_file|replace|edit|write_new_file|smart_edit)$/;
+const GEMINI_SHELL = /^(run_shell_command|shell)$/;
+
+export function parseGeminiLine(line, state = {}) {
+  let e;
+  try { e = JSON.parse(line); } catch { return []; }
+  const out = [];
+  state.seen = state.seen || new Set();
+  if (e.sessionId && !e.type) { state.sessionId = state.sessionId || e.sessionId; return out; }
+  if (e.$set || !e.type || !e.id) return out;
+  const ts = e.timestamp ? Date.parse(e.timestamp) : Date.now();
+  const once = (k) => (state.seen.has(k) ? false : (state.seen.add(k), true));
+  if (e.type === "user") {
+    const t = geminiText(e.content);
+    if (t.trim() && !t.startsWith("/") && once(`${e.id}:prompt`)) {
+      state.lastPrompt = t; state.title = state.title || short(t, 90); state.turn = "working";
+      out.push({ kind: "agent.prompt", key: `${e.id}:prompt`, ts, title: short(t, 200), detail: { text: t.slice(0, 20000) } });
+    }
+    return out;
+  }
+  if (e.type === "error" && once(`${e.id}:error`)) {
+    out.push({ kind: "agent.error", key: `${e.id}:error`, ts, title: short(geminiText(e.content) || "Gemini error", 200), detail: { message: geminiText(e.content).slice(0, 4000) } });
+    return out;
+  }
+  if (e.type !== "gemini") return out;
+  if (e.model) state.model = e.model;
+  state.turn = "working";
+  let pending = false;
+  for (const tc of e.toolCalls || []) {
+    const done = ["success", "error", "cancelled"].includes(tc.status);
+    if (!done) { pending = true; continue; }
+    const k = `${e.id}:${tc.id || tc.name}`;
+    if (!once(k)) continue;
+    const args = tc.args || {};
+    const failed = tc.status !== "success";
+    if (GEMINI_SHELL.test(tc.name)) {
+      const out0 = typeof tc.resultDisplay === "string" ? tc.resultDisplay : "";
+      const code = /Exit Code: (\d+)/.exec(out0)?.[1];
+      const ev = commandEvent(String(args.command || ""), { exitCode: code ? Number(code) : failed ? 1 : 0, output: out0.slice(-6000), cwd: args.directory || state.cwd || null, ok: !failed }, k, ts);
+      if (failed || (code && code !== "0")) { ev.title = `Failed: ${short(args.command, 120)}`; if (ev.kind === "agent.command") ev.kind = "agent.command_failed"; }
+      out.push(ev);
+    } else if (GEMINI_EDIT.test(tc.name) && args.file_path) {
+      if (failed) { out.push({ kind: "agent.error", key: k, ts, title: `Edit failed: ${String(args.file_path).split("/").pop()}`, detail: { path: args.file_path } }); continue; }
+      const diff = typeof tc.resultDisplay === "object" && tc.resultDisplay?.fileDiff ? String(tc.resultDisplay.fileDiff).slice(0, 60000) : null;
+      out.push({ kind: "agent.edit", key: k, ts, title: `${tc.name === "write_file" ? "Wrote" : "Edited"} ${String(args.file_path).split("/").pop()}`,
+        detail: { path: args.file_path, change: tc.name === "write_file" ? "write" : "update", diff }, follow: { view: "diff", path: args.file_path } });
+    } else if (tc.name === "read_file" && IMAGE.test(String(args.file_path || args.absolute_path || ""))) {
+      const p = String(args.file_path || args.absolute_path);
+      out.push({ kind: "agent.image", key: k, ts, title: `Viewed ${p.split("/").pop()}`, detail: { path: p, via: "view" }, follow: { view: "screenshot", path: p } });
+    } else {
+      out.push({ kind: "agent.tool", key: k, ts, persist: !/^(read_file|list_directory|glob|search_file_content|grep_search|read_many_files)$/.test(tc.name), title: `${tc.displayName || tc.name}${args.file_path ? ` ${String(args.file_path).split("/").pop()}` : args.pattern ? ` ${short(args.pattern, 60)}` : ""}`,
+        detail: { tool: tc.name, input: short(JSON.stringify(args), 600), failed }, follow: BROWSER_TOOL.test(tc.name) ? { view: "vnc" } : { view: "activity" } });
+    }
+  }
+  const t = geminiText(e.content);
+  if (t.trim() && once(`${e.id}:message`)) {
+    state.lastMessage = t;
+    out.push({ kind: "agent.message", key: `${e.id}:message`, ts, title: short(t, 200), detail: { text: t.slice(0, 20000) } });
+  }
+  // A reply with text and no tool still running ends the turn.
+  if (t.trim() && !pending && once(`${e.id}:done`)) {
+    state.turn = "idle";
+    out.push({ kind: "agent.done", key: `${e.id}:done`, ts, title: "Turn finished", detail: { last: short(t, 400) } });
+  }
+  return out;
+}

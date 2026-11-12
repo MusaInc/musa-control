@@ -6,18 +6,37 @@
 import crypto from "node:crypto";
 
 const FOOTER = /(enter to confirm|esc to cancel|press enter to confirm|enter to select|↑\/↓ to (move|navigate)|esc to (go back|exit|cancel))/i;
-const CURSORS = "❯›>";
-const OPTION = /^(\s*)(?:([❯›>])\s*)?(?:(\d+)[.)]\s+)?(\S.*?)\s*$/;
+const CURSORS = "❯›>●";
+const OPTION = /^(\s*)(?:([❯›>●])\s*)?(?:(\d+)[.)]\s+)?(\S.*?)\s*$/;
+// Gemini CLI draws its dialogs inside a rounded box ("│ … │") with a "●"
+// cursor and no footer line. The box's last row stands in for the footer.
+const BOX_ROW = /^\s*│(.*?)│?\s*$/;
+const BOX_END = /^\s*╰[─━]+╯?\s*$/;
 const SEPARATOR = /^[\s─━╌┄═\-_]+$/;
 
 export function parsePrompt(screen) {
   if (!screen) return null;
   const lines = screen.replace(/\r/g, "").split("\n").map((l) => l.replace(/\s+$/, ""));
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  const tail = lines.slice(-70);
+  let tail = lines.slice(-70);
   let footer = -1;
   for (let i = tail.length - 1; i >= Math.max(0, tail.length - 8); i--) if (FOOTER.test(tail[i])) { footer = i; break; }
-  if (footer < 0) return null;
+  if (footer < 0 || BOX_ROW.test(tail[footer])) {
+    footer = -1;
+    // Gemini: a box closing near the bottom whose rows include a "●" option.
+    let end = -1;
+    for (let i = tail.length - 1; i >= Math.max(0, tail.length - 6); i--) if (BOX_END.test(tail[i])) { end = i; break; }
+    if (end < 0) return null;
+    let start = end - 1;
+    while (start >= 0 && BOX_ROW.test(tail[start])) start--;
+    const inner = tail.slice(start + 1, end).map((l) => l.match(BOX_ROW)[1].replace(/\s+$/, ""));
+    if (!inner.some((l) => /^\s*●\s*\d+[.)]\s/.test(l))) return null;
+    // Drop rows after the option list (hints such as "(Use Enter to select)").
+    let last = inner.length - 1;
+    while (last >= 0 && !/^\s*(●\s*)?\d+[.)]\s/.test(inner[last])) last--;
+    tail = [...tail.slice(0, start + 1).map((l) => (/^\s*╭/.test(l) ? "─".repeat(20) : l)), ...inner.slice(0, last + 1), "Enter to select"];
+    footer = tail.length - 1;
+  }
 
   // Options block directly above the footer.
   let i = footer - 1;
@@ -79,7 +98,7 @@ export function parsePrompt(screen) {
   const command = (context.find((l) => l.startsWith("$ ")) || "").slice(2) || null;
   const items = options.map((o, idx) => ({
     index: idx, number: o.number, label: o.text.replace(/\s+\((y|p|a|n|esc)\)\s*$/i, "").trim(),
-    tone: /^no\b|deny|reject|exit|cancel|back to/i.test(o.text) ? "deny" : /^yes\b|allow|trust|proceed|approve/i.test(o.text) ? "allow" : "neutral",
+    tone: /^no\b|^don.?t\b|deny|reject|exit|cancel|back to/i.test(o.text) ? "deny" : /^yes\b|allow|trust|proceed|approve/i.test(o.text) ? "allow" : "neutral",
   }));
   const signature = crypto.createHash("sha1").update(question + "\n" + text + "\n" + items.map((x) => x.label).join("|")).digest("hex").slice(0, 16);
   return { kind, question, context: text, command, options: items, selected, signature };

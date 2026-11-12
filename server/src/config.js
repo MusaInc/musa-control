@@ -1,7 +1,16 @@
-// Gateway configuration. Defaults describe the Musa Studios VPS; an optional
-// JSON file (MUSA_CONTROL_CONFIG or ~/.config/musa-control/config.json)
-// overrides any key. Nothing secret lives here: the workspace password is
-// only ever read as the existing bcrypt hash file.
+// Gateway configuration. Two profiles share the same code:
+//
+// * "personal" (the default, musa-control.service): the Musa Studios VPS,
+//   paired with the workspace password, served by Caddy at /control.
+//   Config ~/.config/musa-control/config.json, data ~/.local/share/musa-control.
+// * "companion" (MUSA_CONTROL_PROFILE=companion, `bin/musa-companion`): the
+//   same gateway on anyone's own machine. Generic project roots, no password
+//   pairing (tokens come from the local CLI over SSH, a one-time pairing code,
+//   or the owner's linked Musa Control account through the relay), loopback only.
+//   Config ~/.config/musa-companion/config.json, data ~/.local/share/musa-companion.
+//
+// The two never share files, so both can run on one machine. Nothing secret
+// lives in config: the workspace password is only ever read as a bcrypt hash.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -59,6 +68,8 @@ const defaults = {
   codexSessionsDir: "~/.codex/sessions",
   claudeBinary: "claude",
   codexBinary: "codex",
+  geminiBinary: "gemini",
+  geminiDir: "~/.gemini",
   maxManagedAgents: 6,
   watch: { maxProjects: 6, maxDirsPerProject: 5000, textLimitBytes: 600_000, idleMinutes: 30 },
   ignoreDirs: [
@@ -74,6 +85,23 @@ const defaults = {
   eventsKeep: 100_000,
   revisionsKeep: 25_000,
   screenshotsKeep: 5_000,
+};
+
+// Companion defaults: nothing about the Musa Studios VPS. Projects are git
+// repositories in the usual places; more can be added in its config file.
+const companionDefaults = {
+  profile: "companion",
+  port: 8170,
+  publicBase: null,
+  dataDir: "~/.local/share/musa-companion",
+  passwordHashFile: null,
+  roots: ["~", "~/projects", "~/Projects", "~/code", "~/Code", "~/dev", "~/src", "~/Developer", "~/workspace", "~/repos", "~/git", "~/Documents/GitHub", "~/Documents/Projects"]
+    .map((p) => ({ path: p, depth: 1, requireGit: true })),
+  extra: [], exclude: [], previews: {}, services: [],
+  vnc: { known: {}, spawnPortBase: 5950, idleStopSeconds: 90 },
+  // The relay link (optional): set by `musa-companion link <code>`.
+  relay: null,
+  sshHost: null,
 };
 
 // Agents are started through `bash -lc`, whose PATH comes from the login
@@ -104,11 +132,23 @@ function merge(base, over) {
   return out;
 }
 
+export function profileOf(overrides = {}) {
+  return overrides.profile || process.env.MUSA_CONTROL_PROFILE || "personal";
+}
+
+export function configFile(profile) {
+  return expand(process.env.MUSA_CONTROL_CONFIG || (profile === "companion" ? "~/.config/musa-companion/config.json" : "~/.config/musa-control/config.json"));
+}
+
 export function loadConfig(overrides = {}) {
-  const file = expand(process.env.MUSA_CONTROL_CONFIG || "~/.config/musa-control/config.json");
+  const profile = profileOf(overrides);
+  const file = configFile(profile);
   let fromFile = {};
   if (fs.existsSync(file)) fromFile = JSON.parse(fs.readFileSync(file, "utf8"));
-  const cfg = merge(merge(defaults, fromFile), overrides);
+  const base = profile === "companion" ? { ...defaults, ...companionDefaults } : { ...defaults, profile: "personal" };
+  const cfg = merge(merge(base, fromFile), overrides);
+  cfg.profile = profile;
+  cfg.configFile = file;
   if (process.env.MUSA_CONTROL_PORT) cfg.port = Number(process.env.MUSA_CONTROL_PORT);
   if (process.env.MUSA_CONTROL_DATA) cfg.dataDir = process.env.MUSA_CONTROL_DATA;
   cfg.dataDir = expand(cfg.dataDir);
@@ -118,5 +158,7 @@ export function loadConfig(overrides = {}) {
   cfg.secretRegexps = cfg.secretPatterns.map((p) => new RegExp(p, "i"));
   cfg.claudeBinary = resolveBinary(cfg.claudeBinary);
   cfg.codexBinary = resolveBinary(cfg.codexBinary);
+  cfg.geminiBinary = resolveBinary(cfg.geminiBinary);
+  cfg.platform = process.platform;
   return cfg;
 }

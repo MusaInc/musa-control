@@ -21,11 +21,18 @@ import { createBuilds } from "./builds.js";
 import { createGithub } from "./github.js";
 import { createSystem } from "./system.js";
 import { createPush } from "./push.js";
+import { createProviders } from "./providers.js";
+import { createTerminal } from "./terminal.js";
+import { createRelayLink } from "./relay-link.js";
+import { hasCommand, osName } from "./platform.js";
+import { AGENTS } from "./agents.js";
+import os from "node:os";
 import { unifiedDiff } from "./diff.js";
 import * as tmux from "./tmux.js";
 import * as ssh from "./ssh.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.4.0";
+export const RELAY_PUSH_TOKEN = "0".repeat(64); // the pseudo push device that stands for "the linked account"
 const WEB_DIR = new URL("../web/", import.meta.url).pathname;
 
 function json(res, status, body, headers = {}) {
@@ -69,12 +76,22 @@ export function createServer(overrides = {}) {
   const git = createGit(projects, events);
   const screenshots = createScreenshots(cfg, db, projects, events);
   const watcher = createWatcher(cfg, db, projects, events, screenshots);
-  const agents = createAgents(cfg, db, projects, events, { watcher, screenshots });
+  const providers = createProviders(cfg, events);
+  const agents = createAgents(cfg, db, projects, events, { watcher, screenshots, providerEnv: providers.envFor });
   const vnc = createVnc(cfg, events);
   const builds = createBuilds(cfg, db, projects, events);
   const github = createGithub(events);
   const system = createSystem(cfg, events);
-  const push = createPush(cfg, db, events, agents, { transport: overrides.apnsTransport });
+  // Relay link (companion linked to a Musa Control account): requests come in
+  // over it, and pushes for the owner's devices go out through it.
+  let relayState = { state: cfg.relay?.url ? "connecting" : "off", detail: null, since: Date.now() };
+  const relay = cfg.relay?.url ? createRelayLink(cfg, auth, {
+    localPort: () => server.address()?.port || cfg.port,
+    info: () => ({ name: cfg.machineName || os.hostname(), platform: process.platform, os: osName(), version: VERSION, profile: cfg.profile, agents: AGENTS }),
+    onState: (st, detail) => { relayState = { state: st, detail: detail || null, since: Date.now() }; },
+  }) : null;
+  const push = createPush(cfg, db, events, agents, { transport: overrides.apnsTransport, relay, relayToken: RELAY_PUSH_TOKEN });
+  const terminal = createTerminal(cfg, projects, events);
   const wss = new WebSocketServer({ noServer: true, handleProtocols: (protocols) => (protocols.has("binary") ? "binary" : false), maxPayload: 8 * 1024 * 1024 });
 
   const routes = [];
@@ -93,19 +110,57 @@ export function createServer(overrides = {}) {
     json(res, r.status, r.body || { error: r.error });
   }, { public: true });
 
+  // Absolute base URL of this gateway as the app sees it: the public Caddy
+  // prefix (personal), the relay's /m/<machine> prefix (relay requests carry
+  // it), or the local end of the app's SSH tunnel (Host header).
+  function baseFor(req, device) {
+    if (device?.relay && /^https:\/\//.test(device.base || "")) return device.base.replace(/\/+$/, "");
+    if (cfg.publicBase) return cfg.publicBase.replace(/\/+$/, "");
+    const host = String(req.headers.host || `127.0.0.1:${cfg.port}`).replace(/[^\w.:\[\]-]/g, "");
+    return `http://${host}`;
+  }
+
+  async function capabilities() {
+    const [tmuxBin, py, git, gh, ss, lsof] = await Promise.all(["tmux", cfg.python3 || "python3", "git", "gh", "ss", "lsof"].map((c) => hasCommand(c)));
+    return {
+      profile: cfg.profile, platform: process.platform, os: osName(), arch: process.arch, node: process.version,
+      terminal: Boolean(tmuxBin), terminalOverSocket: Boolean(tmuxBin && py && terminal.available()), agents: Boolean(tmuxBin),
+      git: Boolean(git), github: Boolean(gh), remoteDesktop: fs.existsSync(cfg.noVncDir) && Object.keys(cfg.vnc?.known || {}).length > 0,
+      previews: Boolean(ss || lsof), services: cfg.services.length > 0, push: push.enabled || Boolean(relay),
+      relay: relay ? relayState.state : "off",
+    };
+  }
+
   // ---------- session ----------
-  route("GET", "/api/me", ({ device }) => ({ id: device.id, name: device.name, expiresAt: device.expires_at, server: { version: VERSION, host: "musastudios.co.uk" } }));
-  route("GET", "/api/devices", () => auth.listDevices());
+  route("GET", "/api/me", async ({ device }) => ({ id: device.id, name: device.name, expiresAt: device.expires_at, via: device.relay ? "relay" : "token",
+    server: { version: VERSION, host: cfg.sshHost || (cfg.profile === "personal" ? "musastudios.co.uk" : os.hostname()), profile: cfg.profile, name: cfg.machineName || os.hostname(), user: os.userInfo().username, home: cfg.home },
+    capabilities: await capabilities() }));
+  route("GET", "/api/capabilities", () => capabilities());
+  // A paired device can mint a one-time code to pair another one.
+  route("POST", "/api/pair-codes", ({ device }) => { const c = auth.createPairCode(); events.emit({ kind: "device.code", title: `Pairing code created by ${device.name}`, detail: {} }); return c; });
+  route("GET", "/api/relay", () => ({ linked: Boolean(cfg.relay?.url), url: cfg.relay?.url || null, machineId: cfg.relay?.machineId || null, ...relayState }));
+
+  // ---------- AI providers (on this machine) ----------
+  route("GET", "/api/providers", ({ q }) => providers.list({ fresh: q.get("fresh") === "1" }));
+  route("POST", "/api/providers/:id/login", ({ params, body }) => providers.startLogin(params.id, { method: body.method }));
+  route("POST", "/api/providers/:id/install", ({ params, body }) => { confirm(body, "install"); return providers.install(params.id); });
+  route("PUT", "/api/providers/:id/key", ({ params, body }) => providers.setKey(params.id, body.key));
+  route("DELETE", "/api/providers/:id/key", ({ params }) => providers.deleteKey(params.id));
+  route("GET", "/api/provider-sessions/:tmux", ({ params }) => providers.loginState(params.tmux));
+  route("POST", "/api/provider-sessions/:tmux/input", ({ params, body }) => providers.loginInput(params.tmux, body.text));
+  route("DELETE", "/api/provider-sessions/:tmux", ({ params }) => providers.endLogin(params.tmux));
+  route("GET", "/api/devices", () => auth.listDevices().filter((d) => d.id !== "relay"));
   route("DELETE", "/api/devices/:id", ({ params }) => { auth.revoke(params.id); ssh.deauthorize(params.id, cfg.authorizedKeysFile); return { ok: true }; });
-  route("GET", "/api/ssh/hostkeys", () => ssh.hostKeys());
+  route("GET", "/api/ssh/hostkeys", () => ({ ...ssh.hostKeys(), host: cfg.sshHost || (cfg.profile === "personal" ? "musastudios.co.uk" : os.hostname()) }));
   route("POST", "/api/ssh/authorize", ({ device, body }) => {
     const r = ssh.authorize(device.id, device.name, body.publicKey, cfg.authorizedKeysFile);
     events.emit({ kind: "ssh.authorized", title: `SSH key installed for ${device.name}`, detail: { device: device.id } });
-    return { ...r, ...ssh.hostKeys() };
+    return { ...r, ...ssh.hostKeys(), host: cfg.sshHost || (cfg.profile === "personal" ? "musastudios.co.uk" : os.hostname()) };
   });
-  route("POST", "/api/web-session", ({ device, res }) => {
-    const c = auth.issueWebCookie(device);
-    json(res, 200, { cookie: { name: c.name, value: c.value, path: "/control", maxAge: c.maxAge } }, { "Set-Cookie": c.header });
+  route("POST", "/api/web-session", ({ device, req, res }) => {
+    const base = new URL(baseFor(req, device));
+    const c = auth.issueWebCookie(device, { path: base.pathname.replace(/\/+$/, "") || "/", secure: base.protocol === "https:" });
+    json(res, 200, { cookie: { name: c.name, value: c.value, path: c.path, maxAge: c.maxAge, secure: base.protocol === "https:" }, base: base.toString().replace(/\/+$/, "") }, { "Set-Cookie": c.header });
   });
 
   // ---------- overview ----------
@@ -175,12 +230,12 @@ export function createServer(overrides = {}) {
   route("POST", "/api/projects/:id/git/pull", ({ params, body }) => { confirm(body, "pull"); return git.pull(params.id); });
 
   // ---------- previews ----------
-  route("GET", "/api/projects/:id/previews", async ({ params }) => {
+  route("GET", "/api/projects/:id/previews", async ({ params, req, device }) => {
     const d = projects.details(params.id);
     const ports = (await system.listeningPorts()).filter((p) => p.cwd && (p.cwd === d.path || p.cwd.startsWith(d.path + "/")) && p.port > 1024);
     const staticBuilds = [];
     for (const rel of ["build/web/index.html", "dist/index.html", "build/index.html", "web/index.html", "public/index.html", "redesigned/index.html", "out/index.html", "index.html"]) {
-      if (fs.existsSync(path.join(d.path, rel))) staticBuilds.push({ label: rel.replace(/\/?index\.html$/, "") || "Project root", path: rel, url: `${cfg.publicBase}/static/${d.id}/${rel}` });
+      if (fs.existsSync(path.join(d.path, rel))) staticBuilds.push({ label: rel.replace(/\/?index\.html$/, "") || "Project root", path: rel, url: `${baseFor(req, device)}/static/${d.id}/${rel}` });
     }
     return { public: d.previews, local: ports.map((p) => ({ port: p.port, process: p.process, pid: p.pid, cwd: p.cwd, label: `${p.process} :${p.port}` })), static: staticBuilds };
   });
@@ -332,6 +387,14 @@ export function createServer(overrides = {}) {
     await sendFile(req, res, full, { mime, cache: "no-cache", extra: { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp", "Cross-Origin-Resource-Policy": "same-origin", "Content-Security-Policy": "frame-ancestors 'self'" } });
   }, { cookie: true });
 
+  // The linked account appears to push.js as one device whose "token" is the
+  // relay; the service fans each push out to the owner's own iPads/iPhones.
+  function ensureRelayPushDevice() {
+    db.raw.prepare("INSERT OR IGNORE INTO devices(id,name,token_hash,created_at,expires_at) VALUES('relay','Musa Control account',?,?,?)")
+      .run("relay-unusable-" + auth._hash(String(Math.random())), Date.now(), Date.now() + 100 * 365 * 86400_000);
+    db.raw.prepare(`INSERT OR IGNORE INTO push_devices(device_id,apns_token,environment,prefs,updated_at) VALUES('relay',?,'production','{}',?)`).run(RELAY_PUSH_TOKEN, Date.now());
+  }
+
   function confirm(body, what) {
     if (body?.confirm !== true) throw Object.assign(new Error(`Confirmation required to ${what}`), { status: 428 });
   }
@@ -368,6 +431,9 @@ export function createServer(overrides = {}) {
     const pathname = url.pathname.replace(/^\/control(?=\/)/, "");
     const m = pathname.match(/^\/api\/vnc\/(\d{1,4})\/ws$/);
     const device = auth.authenticate(req, { allowCookie: true });
+    if (pathname === "/api/terminal/ws" && device) {
+      return wss.handleUpgrade(req, socket, head, (ws) => terminal.attach(ws, { session: url.searchParams.get("session"), project: url.searchParams.get("project"), dir: url.searchParams.get("dir"), cols: url.searchParams.get("cols"), rows: url.searchParams.get("rows"), device }));
+    }
     if (!m || !device) { socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"); return socket.destroy(); }
     wss.handleUpgrade(req, socket, head, (ws) => {
       vnc.bridge(ws, { display: m[1], mode: url.searchParams.get("mode") === "control" ? "control" : "observe", device })
@@ -379,6 +445,7 @@ export function createServer(overrides = {}) {
   async function start() {
     await new Promise((r) => server.listen(cfg.port, cfg.host, r));
     await agents.start();
+    if (relay) { ensureRelayPushDevice(); relay.start(); }
     const repos = () => [...new Set([...projects.all().values()].map((p) => p.github).filter(Boolean))];
     ghTimer = setInterval(() => github.watch(repos()).catch(() => {}), 60_000);
     github.watch(repos()).catch(() => {});
@@ -388,10 +455,11 @@ export function createServer(overrides = {}) {
   }
   async function stop() {
     clearInterval(ghTimer); clearInterval(sysTimer); clearInterval(pruneTimer);
+    relay?.stop(); terminal.closeAll();
     agents.stop(); push.close(); watcher.close(); builds.close(); vnc.closeAll();
     await new Promise((r) => server.close(r));
     server.closeAllConnections?.();
     db.close();
   }
-  return { cfg, server, start, stop, db, auth, events, projects, agents, watcher, screenshots, files, push };
+  return { cfg, server, start, stop, db, auth, events, projects, agents, watcher, screenshots, files, push, providers, relay, terminal };
 }

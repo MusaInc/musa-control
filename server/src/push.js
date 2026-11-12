@@ -48,7 +48,7 @@ export function assessApproval(prompt) {
   return { reviewOnly: false, approve: approve.index, reject: reject.index };
 }
 
-export function createPush(cfg, db, events, agents, { transport } = {}) {
+export function createPush(cfg, db, events, agents, { transport, relay, relayToken } = {}) {
   db.raw.exec(`
     CREATE TABLE IF NOT EXISTS push_devices (
       device_id TEXT PRIMARY KEY, apns_token TEXT NOT NULL, environment TEXT NOT NULL, prefs TEXT NOT NULL,
@@ -62,7 +62,14 @@ export function createPush(cfg, db, events, agents, { transport } = {}) {
     CREATE INDEX IF NOT EXISTS push_actions_session ON push_actions(session, used_at);
   `);
   const conf = loadApnsConfig(cfg);
-  const apns = conf.configured || transport ? createApns(conf.configured ? conf : { topic: "test" }, { transport }) : null;
+  const direct = conf.configured || transport ? createApns(conf.configured ? conf : { topic: "test" }, { transport }) : null;
+  // With a relay link, the linked account is one more "device": its pushes go
+  // to the account service, which owns the APNs key for public users.
+  const apns = direct || relay ? {
+    send: (m) => (relay && m.deviceToken === relayToken ? relay.push({ payload: m.payload, collapseId: m.collapseId, expiration: m.expiration, pushType: m.pushType, priority: m.priority })
+      : direct ? direct.send(m) : Promise.resolve({ status: 503, reason: "APNs not configured on this machine" })),
+    close: () => direct?.close(),
+  } : null;
   const recent = new Map(); // device|session|category → last push time (cooldown)
 
   const devicesStmt = () => db.raw.prepare(`SELECT p.*, d.name FROM push_devices p JOIN devices d ON d.id = p.device_id
@@ -74,7 +81,7 @@ export function createPush(cfg, db, events, agents, { transport } = {}) {
       categories: { ...DEFAULT_PREFS.categories, ...(p.categories || {}) },
       sounds: { ...DEFAULT_PREFS.sounds, ...(p.sounds || {}) },
       mutedProjects: Array.isArray(p.mutedProjects) ? p.mutedProjects.map(String).slice(0, 200) : [],
-      mutedAgents: Array.isArray(p.mutedAgents) ? p.mutedAgents.filter((a) => ["claude", "codex"].includes(a)) : [],
+      mutedAgents: Array.isArray(p.mutedAgents) ? p.mutedAgents.filter((a) => ["claude", "codex", "gemini"].includes(a)) : [],
     };
   }
 
@@ -122,7 +129,7 @@ export function createPush(cfg, db, events, agents, { transport } = {}) {
     }
   }
 
-  const agentName = (a) => (a === "claude" ? "Claude Code" : a === "codex" ? "Codex" : "Agent");
+  const agentName = (a) => ({ claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI" })[a] || "Agent";
   const clip = (s, n) => { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
 
   function content(ev, cat) {
@@ -206,7 +213,9 @@ export function createPush(cfg, db, events, agents, { transport } = {}) {
   async function act(device, { nonce, action }) {
     if (!["approve", "reject"].includes(action)) throw Object.assign(new Error("action must be approve or reject"), { status: 400 });
     const row = db.raw.prepare("SELECT * FROM push_actions WHERE nonce_hash=?").get(sha(String(nonce || "")));
-    if (!row || row.device_id !== device.id) throw Object.assign(new Error("Unknown approval token."), { status: 404 });
+    // Notifications sent through the relay belong to the account: any of the
+    // owner's devices reaching us through the relay may act on them.
+    if (!row || (row.device_id !== device.id && !(row.device_id === "relay" && device.relay))) throw Object.assign(new Error("Unknown approval token."), { status: 404 });
     if (row.used_at) throw Object.assign(new Error(row.outcome === "superseded" ? "That approval was already answered or closed." : "That approval was already used."), { status: 409 });
     if (row.expires_at < Date.now()) throw Object.assign(new Error("That approval request expired. Open Musa Control to review it."), { status: 410 });
     // Claim it first: a second tap (or a replay) can't press keys twice.

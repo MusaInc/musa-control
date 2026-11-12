@@ -14,22 +14,25 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { run } from "./exec.js";
+import { processTable, cwdOf } from "./platform.js";
 import * as tmux from "./tmux.js";
 import { parsePrompt, keysFor } from "./prompts.js";
-import { parseClaudeLine, parseCodexLine } from "./transcripts.js";
+import { parseClaudeLine, parseCodexLine, parseGeminiLine } from "./transcripts.js";
 import { expand } from "./config.js";
 
 export const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+export const AGENTS = ["claude", "codex", "gemini"];
+const PARSERS = { claude: parseClaudeLine, codex: parseCodexLine, gemini: parseGeminiLine };
+export const agentName = (a) => ({ claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI" })[a] || a;
 const DAY = 86400_000;
 const SIZE = { w: 180, h: 50 }; // managed agent windows when no client is attached
 
-export function createAgents(cfg, db, projects, events, { watcher, screenshots } = {}) {
+export function createAgents(cfg, db, projects, events, { watcher, screenshots, providerEnv } = {}) {
   const sessions = new Map(); // key → session
   const files = new Map();    // transcript path → {key, offset, state, agent}
   const offsets = db.get("transcript-offsets", {});
   const managedRows = () => db.raw.prepare("SELECT * FROM managed_agents WHERE ended_at IS NULL").all();
-  const claudeDir = expand(cfg.claudeProjectsDir), codexDir = expand(cfg.codexSessionsDir);
+  const claudeDir = expand(cfg.claudeProjectsDir), codexDir = expand(cfg.codexSessionsDir), geminiDir = expand(cfg.geminiDir || "~/.gemini");
   let procs = [];   // live agent processes
   let panes = [];
   let timer = null, procTimer = null, promptTimer = null, saving = 0;
@@ -63,6 +66,22 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
         if (st && st.mtimeMs > since) out.push({ file: f, agent: "codex", mtime: st.mtimeMs, size: st.size });
       }
     }
+    // Gemini CLI: ~/.gemini/projects.json maps project roots to the short ids
+    // naming ~/.gemini/tmp/<id>/chats.
+    try {
+      const reg = JSON.parse(await fsp.readFile(path.join(geminiDir, "projects.json"), "utf8")).projects || {};
+      for (const [root, short] of Object.entries(reg)) {
+        const dir = path.join(geminiDir, "tmp", String(short).replace(/[/\\]/g, ""), "chats");
+        let names = [];
+        try { names = await fsp.readdir(dir); } catch { continue; }
+        for (const n of names) {
+          if (!/^session-.*\.jsonl$/.test(n)) continue;
+          const f = path.join(dir, n);
+          const st = await fsp.stat(f).catch(() => null);
+          if (st && st.mtimeMs > since) out.push({ file: f, agent: "gemini", mtime: st.mtimeMs, size: st.size, cwd: root });
+        }
+      }
+    } catch {}
     return out;
   }
 
@@ -86,7 +105,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
       // Events already recorded are skipped by their unique dedupe keys, and
       // nothing from this catch-up read triggers notifications.
       const start = Math.max(0, f.size - 384 * 1024);
-      rec = { offset: start, state: {}, agent: f.agent, primed: false, aligned: start === 0 };
+      rec = { offset: start, state: f.cwd ? { cwd: f.cwd } : {}, agent: f.agent, primed: false, aligned: start === 0 };
       files.set(f.file, rec);
       // Read the first line(s) for session metadata (cwd, id) when skipping ahead.
       if (start > 0) {
@@ -95,7 +114,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
           const buf = Buffer.alloc(Math.min(64 * 1024, f.size));
           await fh.read(buf, 0, buf.length, 0);
           for (const line of buf.toString("utf8").split("\n").slice(0, 40)) {
-            const parse = f.agent === "claude" ? parseClaudeLine : parseCodexLine;
+            const parse = PARSERS[f.agent];
             if (line.startsWith("{")) parse(line, rec.state);
             if (rec.state.cwd && rec.state.sessionId) break;
           }
@@ -119,7 +138,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
     if (rec.offset > 0 && !rec.aligned) { lines = lines.slice(1); rec.aligned = true; } // drop the partial first line
     rec.offset += consumed;
     rec.aligned = true;
-    const parse = f.agent === "claude" ? parseClaudeLine : parseCodexLine;
+    const parse = PARSERS[f.agent];
     const firstRead = !rec.primed;
     rec.primed = true;
     for (const line of lines) {
@@ -184,17 +203,13 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
 
   // ---------- processes + tmux ----------
   async function pollProcesses() {
-    const r = await run("ps", ["-eo", "pid=,ppid=,lstart=,args=", "--cols", "800"]);
     const table = new Map();
-    for (const line of r.stdout.split("\n")) {
-      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\w+\s+\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.*)$/);
-      if (m) table.set(+m[1], { pid: +m[1], ppid: +m[2], started: Date.parse(m[3]), args: m[4] });
-    }
+    for (const p of await processTable()) table.set(p.pid, p);
     const which = (args) => {
       const t = args.split(/\s+/);
       const first = path.basename(t[0] || "");
-      if (/^(claude|codex)$/.test(first)) return first;
-      if (/^(node|bun|bash|sh)$/.test(first) && t[1] && /\/(claude|codex)(\.js)?$|^(claude|codex)$/.test(t[1])) return t[1].match(/(claude|codex)/)[1];
+      if (/^(claude|codex|gemini)$/.test(first)) return first;
+      if (/^(node|bun|bash|sh)$/.test(first) && t[1] && /\/(claude|codex|gemini)(\.js)?$|^(claude|codex|gemini)$|gemini-cli\/(bundle|dist)\/(gemini|index)\.js$/.test(t[1])) return t[1].match(/(claude|codex|gemini)/)[1];
       if (/\/codex\/codex$|codex-linux|codex-x86_64/.test(t[0])) return "codex";
       return null;
     };
@@ -205,8 +220,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
       if (/\b(app-server|mcp-server|exec-server|mcp serve)\b/.test(p.args)) continue;
       const parent = table.get(p.ppid);
       if (parent && which(parent.args) === kind) continue; // native binary under its launcher
-      let cwd = null;
-      try { cwd = fs.readlinkSync(`/proc/${p.pid}/cwd`); } catch {}
+      const cwd = await cwdOf(p.pid);
       const ancestors = [];
       for (let a = table.get(p.ppid), n = 0; a && n < 15; a = table.get(a.ppid), n++) ancestors.push(a.pid);
       const explicit = p.args.match(/--(?:resume|session-id)[ =]([0-9a-f-]{36})/) || p.args.match(/\bresume\s+([0-9a-f-]{36})/);
@@ -272,7 +286,6 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
     }
   }
 
-  const agentName = (a) => (a === "claude" ? "Claude Code" : "Codex");
 
   function statusOf(s) {
     const p = prompts.get(s.key);
@@ -314,7 +327,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
 
   // ---------- control ----------
   async function launch({ agent, project, prompt = "", mode = "default", resume = null, allowDuplicate = false, model = null }) {
-    if (!["claude", "codex"].includes(agent)) throw Object.assign(new Error("agent must be claude or codex"), { status: 400 });
+    if (!AGENTS.includes(agent)) throw Object.assign(new Error("agent must be claude, codex or gemini"), { status: 400 });
     const p = projects.get(project);
     const live = list({ includeEnded: false }).filter((v) => v.managed && v.status !== "exited");
     if (live.length >= cfg.maxManagedAgents) throw Object.assign(new Error(`Already running ${live.length} agents from Musa Control (limit ${cfg.maxManagedAgents}). Stop one first.`), { status: 429 });
@@ -331,6 +344,13 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
       if (model) args.push("--model", model);
       if (prompt && !resume) args.push("--", prompt);
       cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");
+    } else if (agent === "gemini") {
+      const args = [cfg.geminiBinary];
+      if (resume) args.push("--resume", resume); else args.push("--session-id", id);
+      args.push("--approval-mode", { acceptEdits: "auto_edit", plan: "plan" }[mode] || "default");
+      if (model) args.push("-m", model);
+      if (prompt && !resume) args.push("-i", prompt);
+      cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");
     } else {
       const args = [cfg.codexBinary];
       if (resume) args.push("resume", resume);
@@ -341,11 +361,24 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
     }
     // A login shell for the user's profile; binaries are absolute (config.js)
     // and PATH is passed through, so nvm-installed agents are found.
-    const binDir = path.dirname(agent === "claude" ? cfg.claudeBinary : cfg.codexBinary);
+    const binDir = path.dirname({ claude: cfg.claudeBinary, codex: cfg.codexBinary, gemini: cfg.geminiBinary }[agent]);
     const env = { PATH: [binDir, process.env.PATH].filter(Boolean).join(":") };
-    await tmux.newSession(name, p.path, `bash -lc ${shq(`export PATH=${shq(env.PATH)}:"$PATH"; exec ${cmd}`)}`, { width: SIZE.w, height: SIZE.h });
+    // Optional API keys the user saved on this machine (providers.js); the
+    // agent's own sign-in is used when there are none.
+    // They go through a 0600 file the shell reads and deletes, never through
+    // command-line arguments other local users could see in `ps`.
+    const keyEnv = providerEnv ? providerEnv(agent) : {};
+    let pre = "";
+    if (Object.keys(keyEnv).length) {
+      const dir = path.join(cfg.dataDir, "run");
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const f = path.join(dir, `${id}.env`);
+      fs.writeFileSync(f, Object.entries(keyEnv).map(([k, v]) => `${k}=${shq(v)}`).join("\n") + "\n", { mode: 0o600 });
+      pre = `set -a; . ${shq(f)}; set +a; rm -f ${shq(f)}; `;
+    }
+    await tmux.newSession(name, p.path, `bash -lc ${shq(`${pre}export PATH=${shq(env.PATH)}:"$PATH"; exec ${cmd}`)}`, { width: SIZE.w, height: SIZE.h });
     db.raw.prepare("INSERT INTO managed_agents(id,agent,project,cwd,tmux,session_id,created_at,title) VALUES(?,?,?,?,?,?,?,?)")
-      .run(id, agent, p.id, p.path, name, agent === "claude" ? (resume || id) : resume, Date.now(), prompt.slice(0, 200) || null);
+      .run(id, agent, p.id, p.path, name, agent === "codex" ? resume : (resume || id), Date.now(), prompt.slice(0, 200) || null);
     // An agent that dies at once (not installed, bad flag, auth expired) used
     // to vanish silently. Watch it briefly and report what it printed.
     const failure = await startupFailure(name);
@@ -355,10 +388,11 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots }
       events.emit({ kind: "agent.error", project: p.id, session: null, title: `${agentName(agent)} didn't start in ${p.name}`, detail: { output: failure.output, exitCode: failure.status, tmux: name }, notify: false });
       throw Object.assign(new Error(`${agentName(agent)} exited straight away${failure.status != null ? ` (exit ${failure.status})` : ""}: ${failure.output.split("\n").filter(Boolean).slice(-3).join(" · ") || "no output"}`), { status: 502, body: { output: failure.output } });
     }
-    events.emit({ kind: "agent.started", project: p.id, session: agent === "claude" ? `claude:${resume || id}` : null, title: `Started ${agentName(agent)} in ${p.name}${resume ? " (resumed)" : ""}`, detail: { tmux: name, prompt: prompt.slice(0, 2000), mode } });
+    const known = agent === "codex" ? null : `${agent}:${resume || id}`;
+    events.emit({ kind: "agent.started", project: p.id, session: known, title: `Started ${agentName(agent)} in ${p.name}${resume ? " (resumed)" : ""}`, detail: { tmux: name, prompt: prompt.slice(0, 2000), mode } });
     watcher?.activate(p.id).catch(() => {});
     setTimeout(() => pollProcesses().catch(() => {}), 1500);
-    return { id, tmux: name, sessionKey: agent === "claude" ? `claude:${resume || id}` : null };
+    return { id, tmux: name, sessionKey: known };
   }
 
   async function send(id, text) {
