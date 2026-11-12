@@ -7,3 +7,5 @@ ios/build/
 ios/DerivedData/
 server/.data/
 xcuserdata/
+ios/MusaControl/Resources/companion.tgz
+dist/

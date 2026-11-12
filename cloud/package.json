@@ -1,0 +1,15 @@
+{
+  "name": "musa-control-cloud",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Musa Control accounts, machine registry, relay and push fan-out for public users",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node --no-warnings src/main.js",
+    "test": "node --no-warnings --test --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "ws": "8.18.0"
+  }
+}
