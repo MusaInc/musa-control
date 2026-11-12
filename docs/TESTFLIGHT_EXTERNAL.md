@@ -1,6 +1,6 @@
 # External TestFlight (friends): ready-to-paste
 
-Existing app record (bundle `uk.co.musastudios.musacontrol`, app id APP_ID). Nothing here creates a new app.
+Existing app record (bundle `uk.co.musastudios.musacontrol`). Nothing here creates a new app.
 
 ## Order of steps
 

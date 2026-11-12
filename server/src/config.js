@@ -24,8 +24,9 @@ const defaults = {
   // Public prefix Caddy strips before forwarding (used to build links for web views).
   publicBase: "https://musastudios.co.uk/control",
   dataDir: "~/.local/share/musa-control",
-  // Same credential as the workspace sign-in (dashboard auth.js). Read-only.
-  passwordHashFile: "/home/dev/caddy/dashboard-password.hash",
+  // Same credential as the workspace sign-in (the dashboard's bcrypt hash),
+  // read-only. Its location is set in the private config file.
+  passwordHashFile: null,
   deviceTokenDays: 90,
   // Directories that hold projects (the VPS adds its own, private ones in
   // ~/.config/musa-control/config.json). Every git repository at the given depth
@@ -53,12 +54,8 @@ const defaults = {
     "orrery-studio": [{ label: "Orrery Studio", url: "https://musastudios.co.uk/orrery/" }],
     "dashboard": [{ label: "Dashboard", url: "https://musastudios.co.uk/" }],
   },
-  // Services whose health the Home screen shows.
-  services: [
-    "vps-dashboard", "caddy", "firedev", "reso-api", "reso-worker", "musa-portfolio", "orrery-api",
-    "musa-live-work-xvfb", "musa-live-work-chromium", "musa-live-work-x11vnc", "musa-live-work-websockify",
-    "vpn", "ssh", "postgresql@17-main", "docker", "musa-control",
-  ],
+  // Services whose health the Home screen shows (listed in the private config file).
+  services: [],
   // VNC: displays that already have a VNC server (display → port). Other Xvfb
   // displays get an on-demand, localhost-only, view-only x11vnc.
   vnc: { known: { "99": { port: 5901, label: "Live Work browser" } }, spawnPortBase: 5950, idleStopSeconds: 90 },

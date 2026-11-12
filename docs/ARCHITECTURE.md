@@ -15,7 +15,7 @@ The app is a window onto them, so losing the network or iOS suspending the app n
 ## Reused infrastructure (not duplicated)
 
 * **Workspace password**: pairing checks the dashboard's existing bcrypt hash
-  (`/home/dev/caddy/dashboard-password.hash`) and stores nothing new about it.
+  (its path is set in the private config file) and stores nothing new about it.
 * **Agent CLIs**: the installed `claude` (2.1.x) and `codex` (0.166) run as normal interactive TUIs
   in tmux. Their own transcripts (`~/.claude/projects`, `~/.codex/sessions`) are the source of
   structured activity, so sessions started anywhere (VS Code, a terminal, the dashboard) show up too.

@@ -132,7 +132,7 @@ struct ProjectGrid: View {
                                 Image(systemName: p.icon).font(.system(size: 15)).frame(width: 32, height: 32).background(Theme.hover, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.accent)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(p.name).font(.system(size: 14.5, weight: .semibold)).lineLimit(1)
-                                    Text(p.path.replacingOccurrences(of: "/home/dev", with: "~")).font(.system(size: 12)).foregroundStyle(Theme.textFaint).lineLimit(1).truncationMode(.middle)
+                                    Text(p.path.replacingOccurrences(of: #"^/(home|Users)/[^/]+"#, with: "~", options: .regularExpression)).font(.system(size: 12)).foregroundStyle(Theme.textFaint).lineLimit(1).truncationMode(.middle)
                                     HStack(spacing: 6) {
                                         Pill(text: p.kind)
                                         if p.github != nil { Pill(text: "GitHub", color: Theme.blue) }
@@ -224,7 +224,7 @@ struct WorkspaceView: View {
         HStack(spacing: 8) {
             if let p = app.project(projectId) {
                 Text(p.name).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                if !compact { Text(p.path.replacingOccurrences(of: "/home/dev", with: "~")).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1) }
+                if !compact { Text(p.path.replacingOccurrences(of: #"^/(home|Users)/[^/]+"#, with: "~", options: .regularExpression)).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1) }
             }
             Spacer()
             Button { app.launcherProject = projectId; app.showLauncher = true } label: { Label("Agent", systemImage: "plus").font(Theme.label) }

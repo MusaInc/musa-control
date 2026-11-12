@@ -1,3 +1,4 @@
+# Template: __USER__, __HOME__ and __NODE__ are filled in at install time.
 [Unit]
 Description=Musa Control Cloud (accounts, relay, push for public users; served at /control-cloud by Caddy)
 After=network-online.target
@@ -5,10 +6,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=dev
-WorkingDirectory=/home/dev/musa-control/cloud
-Environment=HOME=/home/dev
-ExecStart=/home/dev/.nvm/versions/node/v22.23.2/bin/node --no-warnings src/main.js
+User=__USER__
+WorkingDirectory=__HOME__/musa-control/cloud
+Environment=HOME=__HOME__
+ExecStart=__NODE__ --no-warnings src/main.js
 Restart=on-failure
 RestartSec=3
 # Hardened: it never needs to touch the rest of the VPS. It reads its code and
@@ -17,7 +18,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/dev/.local/share/musa-control-cloud
+ReadWritePaths=__HOME__/.local/share/musa-control-cloud
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true

@@ -9,8 +9,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 PUBLIC="${PUBLIC_URL:-https://musastudios.co.uk/control-cloud}"
 DATA="$HOME/.local/share/musa-control-cloud"; CONF="$HOME/.config/musa-control-cloud"
-NODE=/home/dev/.nvm/versions/node/v22.23.2/bin
-export PATH="$NODE:$PATH"
+NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/v22*/bin 2>/dev/null | sort -V | tail -1)"; NODE_BIN="${NODE_BIN:-$(dirname "$(command -v node)")}"
+export PATH="$NODE_BIN:$PATH"
 
 mkdir -p "$DATA" "$CONF"; chmod 700 "$DATA" "$CONF"
 if [ ! -f "$CONF/config.json" ]; then
@@ -23,7 +23,7 @@ fi
 sh "$ROOT/tools/pack_companion.sh" "$DATA/musa-companion.tgz"
 [ -f "$CONF/apns.json" ] || echo "note: no $CONF/apns.json yet — push for public users stays off until you add an APNs key (see docs/MULTI_USER.md)"
 
-sudo cp "$HERE/musa-control-cloud.service" /etc/systemd/system/
+sed -e "s#__USER__#$(id -un)#g" -e "s#__HOME__#$HOME#g" -e "s#__NODE__#$NODE_BIN/node#g" "$HERE/musa-control-cloud.service" | sudo tee /etc/systemd/system/musa-control-cloud.service >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now musa-control-cloud
 sudo systemctl restart musa-control-cloud

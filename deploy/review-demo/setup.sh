@@ -8,7 +8,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/../.." && pwd)"
 CLOUD="${PUBLIC_URL:-https://musastudios.co.uk/control-cloud}"
 EMAIL="${REVIEW_EMAIL:-appreview@musastudios.co.uk}"
 OUT="$HOME/.config/musa-control-cloud/review-account.txt"
-export PATH=/home/dev/.nvm/versions/node/v22.23.2/bin:$PATH
+NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/v22*/bin 2>/dev/null | sort -V | tail -1)"; NODE_BIN="${NODE_BIN:-$(dirname "$(command -v node)")}"
+export PATH="$NODE_BIN:$PATH"
 sh "$ROOT/tools/pack_companion.sh" "$HERE/musa-companion.tgz" >/dev/null
 docker build -q -t musa-review-demo "$HERE" >/dev/null
 PASS="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"
