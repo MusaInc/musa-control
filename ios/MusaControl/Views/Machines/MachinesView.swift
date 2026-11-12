@@ -164,14 +164,14 @@ struct ProviderInfo: Codable, Identifiable, Hashable {
     let installed: Bool; let version: String?; let auth: Auth; let apiKey: Key
     enum CodingKeys: String, CodingKey { case id, name, vendor, plan, docs, npmPackage = "package", installed, version, auth, apiKey }
 }
-struct TmuxRef: Codable, Hashable, Identifiable { let tmux: String; var id: String { tmux } }
+struct TmuxSessionRef: Codable, Hashable, Identifiable { let tmux: String; var id: String { tmux } }
 
 struct ProvidersPanel: View {
     @Environment(AppModel.self) private var app
     @State private var providers: [ProviderInfo] = []
     @State private var loading = false
     @State private var error: String?
-    @State private var login: TmuxRef?
+    @State private var login: TmuxSessionRef?
     @State private var loginTitle = ""
     @State private var keyFor: ProviderInfo?
     @State private var installFor: ProviderInfo?
@@ -241,12 +241,12 @@ struct ProvidersPanel: View {
     }
 
     func startLogin(_ p: ProviderInfo) async {
-        do { login = try await app.client.send("POST", "/api/providers/\(p.id)/login", [:], as: TmuxRef.self); loginTitle = "Sign in to \(p.name)" }
+        do { login = try await app.client.send("POST", "/api/providers/\(p.id)/login", [:], as: TmuxSessionRef.self); loginTitle = "Sign in to \(p.name)" }
         catch { self.error = error.localizedDescription }
     }
 
     func install(_ p: ProviderInfo) async {
-        do { let r = try await app.client.send("POST", "/api/providers/\(p.id)/install", ["confirm": true], as: TmuxRef.self); app.attachTerminal(r.tmux) }
+        do { let r = try await app.client.send("POST", "/api/providers/\(p.id)/install", ["confirm": true], as: TmuxSessionRef.self); app.attachTerminal(r.tmux) }
         catch { self.error = error.localizedDescription }
     }
 }
@@ -256,7 +256,7 @@ struct ProviderLoginState: Codable { let exists: Bool; let screen: String?; let 
 /// The provider's own sign-in, running on the computer: its link (opened
 /// here in Safari), its device code, and a box for pasting the code back.
 struct ProviderLoginSheet: View {
-    let ref: TmuxRef
+    let ref: TmuxSessionRef
     let title: String
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
