@@ -1,0 +1,24 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Musa Control Privacy</title><link rel="stylesheet" href="page.css"></head><body><main>
+<h1>Musa Control privacy policy</h1><p class="sub">Musa Studios · last updated 12 November 2026</p>
+<section><h2>The short version</h2><ul>
+<li>Your code, files, terminals and AI agent sessions stay on <strong>your own computers</strong>. Musa Control shows and controls them; it doesn't copy them to our servers.</li>
+<li>We never ask for, see or store your Anthropic, OpenAI or Google password or session tokens. Each AI tool signs in on your computer with its own login.</li>
+<li>No advertising, no tracking, no selling of data. No third-party analytics in the app.</li></ul></section>
+<section><h2>What we store, if you create an account</h2><ul>
+<li><strong>Account:</strong> email (or Apple's private relay address when you use Sign in with Apple), an optional name, and a salted hash of your password (never the password).</li>
+<li><strong>Signed-in devices:</strong> device name, platform, sign-in and last-active times, last IP address. Session tokens are stored only as hashes.</li>
+<li><strong>Linked computers:</strong> the name you give them, hostname, operating system and companion version. The machine secret is stored only as a hash.</li>
+<li><strong>Notifications:</strong> your device's push token and which notification types you want.</li>
+<li><strong>Security log:</strong> sign-ins, failed sign-ins, linking and removing computers, and the method and path (not the content) of actions you send to them. Kept for 180 days.</li></ul></section>
+<section><h2>What passes through the relay</h2>
+<p>If you link a computer that the app can't reach directly, requests between the app and that computer pass through our relay, encrypted with TLS on both sides. The relay forwards them and keeps nothing apart from the security-log entry above. Computers you connect over SSH don't use the relay at all: the app talks to them end-to-end encrypted.</p>
+<p>Notifications are composed on your computer and delivered through Apple Push Notification service. They may include an agent's question or a short summary of its work.</p></section>
+<section><h2>On your device</h2>
+<p>Session and device tokens, and the app's SSH key, are kept in the iOS Keychain on that device only. Optional AI provider API keys you enter are saved only on the computer you choose (readable by your user only) and never on our servers.</p></section>
+<section><h2>Your choices</h2><ul>
+<li><strong>Export:</strong> Machines &amp; AI → Account → Manage → Export my data.</li>
+<li><strong>Delete:</strong> Machines &amp; AI → Account → Manage → Delete account removes your account, sessions, linked computers and security log at once (and revokes Sign in with Apple). Nothing on your computers is deleted.</li>
+<li>You can use Musa Control without an account by connecting computers over SSH.</li></ul></section>
+<section><h2>Contact</h2><p><a href="mailto:support@musastudios.co.uk">support@musastudios.co.uk</a> · Musa Studios, United Kingdom.</p></section>
+</main></body></html>

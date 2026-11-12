@@ -1,0 +1,11 @@
+		# Musa Control Cloud (musa-control-cloud.service on 127.0.0.1:8180): public accounts, relay and push.
+		# It has no route to the personal gateway; every relayed request is checked against the machine's owner.
+		handle_path /control-cloud/* {
+			header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+			request_body {
+				max_size 220MB
+			}
+			reverse_proxy 127.0.0.1:8180 {
+				flush_interval -1
+			}
+		}

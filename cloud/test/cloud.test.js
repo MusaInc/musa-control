@@ -306,3 +306,7 @@ test("one-line installer is served with this service's address and the bundle's 
   assert.equal(sum, crypto.createHash("sha256").update("fake bundle").digest("hex"));
   assert.equal((await fetch(`${CLOUD}/companion/../v1/me`)).status, 401);
 });
+
+test("privacy and support pages are public", async () => {
+  for (const p of ["/privacy", "/support"]) { const r = await fetch(CLOUD + p); assert.equal(r.status, 200); assert.match(await r.text(), /support@musastudios\.co\.uk/); }
+});

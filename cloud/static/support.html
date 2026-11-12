@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Musa Control Support</title><link rel="stylesheet" href="page.css"></head><body><main>
+<h1>Musa Control support</h1><p class="sub">Control the AI coding agents on your own computers from your iPad or iPhone.</p>
+<section><h2>Connecting a computer</h2><ul>
+<li><strong>Linux server or VPS:</strong> Add a computer → Linux server, enter its address and SSH user. Needs Node.js 22 and tmux (no root).</li>
+<li><strong>Mac:</strong> turn on System Settings → General → Sharing → Remote Login, install Node.js 22 and tmux (<code>brew install node tmux</code>), then add it as a Mac.</li>
+<li><strong>Windows:</strong> install WSL2 with Ubuntu (<code>wsl --install -d Ubuntu</code>), then link it with a code from inside Ubuntu.</li>
+<li><strong>Behind a router:</strong> Add a computer → "can't reach", then run the one-line command it shows on that computer.</li></ul></section>
+<section><h2>Signing in to Claude Code, Codex or Gemini CLI</h2>
+<p>Machines &amp; AI → AI subscriptions → Sign in. The provider's own sign-in page opens; paste back the code it shows if asked. Your subscription stays with the provider and Musa Control doesn't sell AI credits.</p></section>
+<section><h2>Common problems</h2><ul>
+<li><em>"Host key changed":</em> the computer's SSH identity is different from when you added it. If you didn't reinstall it, don't connect.</li>
+<li><em>Computer offline:</em> check the companion: <code>musa-companion info</code> on that computer.</li>
+<li><em>Agent won't start:</em> make sure tmux is installed and the AI tool is signed in.</li></ul></section>
+<section><h2>Contact</h2><p><a href="mailto:support@musastudios.co.uk">support@musastudios.co.uk</a>. We usually reply within two working days. <a href="privacy">Privacy policy</a>.</p></section>
+</main></body></html>

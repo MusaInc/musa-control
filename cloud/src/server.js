@@ -104,6 +104,13 @@ export function createServer(overrides = {}) {
     for (const [k, v] of Object.entries(SECURITY)) res.setHeader(k, v);
     if (!accounts.limiter.hit(`req:${ip}`, cfg.limits.requestsPerMinutePerIp, 60_000)) return json(res, 429, { error: "Slow down." }, { "Retry-After": "60" });
 
+    // Public pages linked from the app and App Store Connect.
+    const page = { "/privacy": ["privacy.html", "text/html"], "/support": ["support.html", "text/html"], "/page.css": ["page.css", "text/css"] }[url.pathname];
+    if (req.method === "GET" && page) {
+      res.writeHead(200, { "Content-Type": `${page[1]}; charset=utf-8`, "Cache-Control": "public, max-age=600", "Content-Security-Policy": "default-src 'none'; style-src 'self'" });
+      return res.end(fs.readFileSync(new URL(`../static/${page[0]}`, import.meta.url)));
+    }
+
     // The companion for one-line installs (built by tools/pack_companion.sh).
     if (req.method === "GET" && url.pathname.startsWith("/companion/")) {
       const name = url.pathname.slice("/companion/".length);

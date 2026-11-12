@@ -40,35 +40,28 @@ iPad/iPhone ──SSH (pinned host key)──▶ your machine: sshd ─▶ compa
 Tests: `cd server && npm test` (32), `cd cloud && npm test` (16: two real accounts, isolation, Apple token forgery,
 relay HTTP/SSE/terminal, revocation, push routing, deletion). iOS unit + UI tests in `ios.yml`.
 
-## What needs you (external setup)
+## What needs you (each step is one command, ready to run)
 
-1. **Build**: GitHub refused macOS jobs on MusaInc (billing), run 43304365348. Either fix billing or make the repo
-   public (history is scrubbed of client references: see "Publishing the repo" below).
-2. **Deploy the cloud** (needs your approval: it's a new public endpoint): a systemd unit for `cloud/src/main.js`
-   on 127.0.0.1:8180, a Caddy route (e.g. `/control-cloud/*` → strip prefix → 8180, with WebSocket upgrade), and
-   `~/.config/musa-control-cloud/config.json` with `publicUrl`, `companionBundle` (from `tools/pack_companion.sh dist/musa-companion.tgz`).
-   The app's default account server is `https://musastudios.co.uk/control-cloud`.
-3. **APNs key** for public users' notifications: `~/.config/musa-control-cloud/apns.json` (keyFile/keyId/teamId).
-4. **Sign in with Apple**: enable the capability on the App ID (automatic signing should add it on the next signed
-   build). Optional `apple.revoke` (a Sign in with Apple key) so deleting an account also revokes Apple's token, which Apple asks for.
-5. **Privacy policy and support pages** at `/control/privacy` and `/control/support` (linked from Settings). They're
-   needed for external TestFlight and the App Store.
-6. **Restart the personal gateway when convenient** (`sudo systemctl restart musa-control`) to get the new
-   routes (providers, Gemini, capabilities). Until then the app falls back gracefully. It loads the new code on
-   any restart anyway, and its behaviour is covered by the original 24 tests.
+1. **Build**: GitHub refuses macOS jobs on private MusaInc (billing). Either fix billing, or publish the cleaned
+   history as a new public repo, which gets free macOS runners:
+   `tools/publish_public_repo.sh MusaInc/musa-control /path/to/AuthKey_<AdminKeyId>.p8`.
+   It refuses to run if any commit still names client work (the check terms are private, in
+   `~/.config/musa-control/private-terms`), creates the repo, pushes `main` + `multi-user`, and sets the 4 secrets
+   and `BUILD_BASE`. The existing private repo stays private: its old commits and Actions logs aren't scrubbed.
+2. **Account service**: `bash deploy/install-cloud.sh` (hardened systemd unit on 127.0.0.1:8180, Caddy route
+   `/control-cloud/*` with backup/validate/rollback, packs the companion for one-line installs, smoke tests).
+   It also serves the privacy and support pages linked from the app.
+3. **APNs key** for public users' pushes: `~/.config/musa-control-cloud/apns.json` (keyFile/keyId/teamId).
+4. **Sign in with Apple** capability: added to the entitlements; automatic signing registers it on the next signed
+   build. Optional `apple.revoke` in the cloud config (a Sign in with Apple key) so account deletion also revokes the Apple token.
+5. **Reviewer demo**: `bash deploy/review-demo/setup.sh` (Docker, unprivileged user, 1 CPU/1 GB, no host mounts,
+   no capabilities). It's verified against a local cloud: it links, comes online through the relay, and shows its sample project.
+6. **Personal gateway**: restart it when convenient (`sudo systemctl restart musa-control`) for the new routes.
+   Its client-specific roots now live in the private `~/.config/musa-control/config.json` (same values).
 
 ## TestFlight: external testers (friends)
 
-1. After a green build: `gh workflow run ios.yml -f testflight=true -f version=0.4.0` (uploads to the existing app).
-2. App Store Connect → TestFlight → External Testing → new group "Friends" → add the build → **Test Information**:
-   beta description, feedback email, privacy policy URL, and **Beta App Review sign-in**: create a reviewer account
-   on the cloud (email + password) with one linked demo machine (a small VPS or container running the companion
-   with a sample repo) so the reviewer sees real agents. Without a machine the app shows only onboarding, which review rejects.
-3. Review notes to include: what the app does; that it controls the user's own computers; AI providers sign in
-   on the user's machine with their own login (no credentials pass through the app); remote commands only run
-   in the user's own environment; account deletion is at Settings → Machines & AI → Account → Delete account.
-4. Export compliance: the app uses TLS and SSH (standard encryption). `ITSAppUsesNonExemptEncryption=false` is
-   the usual answer for standard protocols, but confirm it for an SSH client before public release.
+See `docs/TESTFLIGHT_EXTERNAL.md` (paste-ready Test Information, review notes, order of steps).
 
 ## Known limits (stated plainly)
 

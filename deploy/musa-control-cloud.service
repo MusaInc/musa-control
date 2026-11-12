@@ -1,0 +1,27 @@
+[Unit]
+Description=Musa Control Cloud (accounts, relay, push for public users; served at /control-cloud by Caddy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dev
+WorkingDirectory=/home/dev/musa-control/cloud
+Environment=HOME=/home/dev
+ExecStart=/home/dev/.nvm/versions/node/v22.23.2/bin/node --no-warnings src/main.js
+Restart=on-failure
+RestartSec=3
+# Hardened: it never needs to touch the rest of the VPS. It reads its code and
+# config, and writes only its own data folder.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/dev/.local/share/musa-control-cloud
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

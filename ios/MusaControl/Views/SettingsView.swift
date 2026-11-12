@@ -87,8 +87,8 @@ struct SettingsView: View {
             SwiftUI.Section("About") {
                 LabeledContent("Version", value: "\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
                 Text("Musa Control runs nothing on the \(Device.name) itself: agents, builds, tmux and the desktop all live on your computers.").font(Theme.caption).foregroundStyle(Theme.textDim)
-                Link("Privacy policy", destination: URL(string: "https://musastudios.co.uk/control/privacy")!)
-                Link("Support", destination: URL(string: "https://musastudios.co.uk/control/support")!)
+                Link("Privacy policy", destination: URL(string: "https://musastudios.co.uk/control-cloud/privacy")!)
+                Link("Support", destination: URL(string: "https://musastudios.co.uk/control-cloud/support")!)
             }
         }
         .scrollContentBackground(.hidden).background(Theme.bg)
