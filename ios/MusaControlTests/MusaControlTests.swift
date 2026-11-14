@@ -637,18 +637,23 @@ final class MachineTests: XCTestCase {
     }
 
     func testLegacyPairingBecomesThePersonalMachineWithoutRepairing() {
-        Keychain.setString("mc_legacy", for: "deviceToken")
         UserDefaults.standard.set("https://example.org/control", forKey: "serverURL")
-        MachineStore.migrateIfNeeded()
+        MachineStore.migrateIfNeeded(readLegacyToken: { "mc_legacy" })
         let m = MachineStore.active
         XCTAssertEqual(m?.id, Machine.personalId)
         XCTAssertEqual(m?.url, "https://example.org/control")
-        XCTAssertEqual(m?.token, "mc_legacy", "same Keychain item as before")
+        XCTAssertEqual(m?.tokenKey, "deviceToken", "keeps the original Keychain item, without copying the secret")
         XCTAssertEqual(MachineStore.scoped("terminalTabs", Machine.personalId), "terminalTabs")
         XCTAssertEqual(MachineStore.scoped("terminalTabs", "ssh-1"), "terminalTabs.ssh-1")
-        MachineStore.migrateIfNeeded()
+        MachineStore.migrateIfNeeded(readLegacyToken: { XCTFail("migration already completed"); return nil })
         XCTAssertEqual(MachineStore.all.count, 1, "runs once")
-        Keychain.delete("deviceToken")
+    }
+
+    func testMigrationRetriesWhenKeychainIsTemporarilyUnavailable() {
+        MachineStore.migrateIfNeeded(readLegacyToken: { nil })
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: "machines.migrated"))
+        MachineStore.migrateIfNeeded(readLegacyToken: { "mc_legacy" })
+        XCTAssertEqual(MachineStore.active?.id, Machine.personalId)
     }
 
     func testMachinesKeepTheirOwnTokensAndSSHSettings() {

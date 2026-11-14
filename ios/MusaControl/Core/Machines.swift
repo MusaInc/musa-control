@@ -101,14 +101,16 @@ enum MachineStore {
     /// Builds before multi-machine support kept one gateway (serverURL +
     /// Keychain "deviceToken" + "sshSettings"). That becomes the "personal"
     /// machine, keeping the same Keychain item, so nothing has to be re-paired.
-    static func migrateIfNeeded() {
+    static func migrateIfNeeded(readLegacyToken: () -> String? = { Keychain.string("deviceToken") }) {
         guard !UserDefaults.standard.bool(forKey: "machines.migrated") else { return }
-        defer { UserDefaults.standard.set(true, forKey: "machines.migrated") }
-        guard Keychain.string("deviceToken") != nil else { return }
+        // A locked or temporarily unavailable Keychain must not permanently
+        // mark migration complete and strand an existing paired computer.
+        guard readLegacyToken() != nil else { return }
         let url = UserDefaults.standard.string(forKey: "serverURL") ?? "https://musastudios.co.uk/control"
         let m = Machine(id: Machine.personalId, name: "Musa Studios VPS", kind: .direct, url: url, platform: "linux", addedAt: Date().timeIntervalSince1970)
         upsert(m)
         activeId = m.id
+        UserDefaults.standard.set(true, forKey: "machines.migrated")
     }
 
     /// Per-machine UserDefaults key (the personal server keeps the old names).
