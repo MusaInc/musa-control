@@ -45,16 +45,18 @@ struct StudioEvidenceView: View {
                     if geo.size.width >= 900 {
                         HStack(spacing: 12) {
                             pane(primary).frame(width: (geo.size.width - 12) * 0.64)
-                            pane(secondary)
+                            pane(secondary).frame(width: (geo.size.width - 12) * 0.36)
                         }
+                        .frame(width: geo.size.width, height: geo.size.height)
                     } else {
                         VStack(spacing: 12) {
                             pane(primary).frame(height: max(100, (geo.size.height - 12) * 0.62))
-                            pane(secondary)
+                            pane(secondary).frame(height: max(0, (geo.size.height - 12) * 0.38))
                         }
+                        .frame(width: geo.size.width, height: geo.size.height)
                     }
                 } else {
-                    pane(primary)
+                    pane(primary).frame(width: geo.size.width, height: geo.size.height)
                 }
             }
             if available.count > 1 {
@@ -77,6 +79,10 @@ struct StudioEvidenceView: View {
             }
         }
         .padding(12).background(Theme.bg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("studio.evidence")
         .coordinateSpace(name: "stage")
         .onChange(of: d.currentEvent?.stableId) { _, _ in picked = nil }
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
@@ -98,6 +104,7 @@ struct StudioEvidenceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .studioRegion(kind.region, d)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("studio.evidence-pane.\(kind.rawValue)")
     }
 }

@@ -107,7 +107,6 @@ jobs:
 
       - name: UI tests (screenshots of every section, landscape + portrait)
         if: github.event_name != 'workflow_dispatch' || inputs.ui_tests
-        continue-on-error: true
         env: { ONLY: "${{ inputs.ui_only }}" }
         run: |
           sel=(-only-testing:MusaControlUITests -skip-testing:MusaControlUITests/MusaControlPhoneUITests)
@@ -123,7 +122,6 @@ jobs:
 
       - name: iPhone UI tests (tab bar, list → detail navigation, every section)
         if: github.event_name != 'workflow_dispatch' || inputs.ui_tests
-        continue-on-error: true
         env: { ONLY: "${{ inputs.ui_only }}" }
         run: |
           sel=(-only-testing:MusaControlUITests/MusaControlPhoneUITests)

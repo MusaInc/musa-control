@@ -37,7 +37,6 @@ struct CommandDeckView: View {
                 AgentStudioView(agentId: id)
                     .id(id)
                     .background(Theme.bg)
-                    .deckHero(id, ns, enabled: !reduceMotion)
                     .transition(.opacity)
                     .zIndex(10)
             }

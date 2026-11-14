@@ -10,6 +10,15 @@ final class MusaControlUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-UITestFixtures", "-section", section, "-appearance", appearance] + extra
         app.launch()
+        // Apply rotation after launch as well: SpringBoard and the app can
+        // otherwise disagree about the screen orientation on the simulator.
+        XCUIDevice.shared.orientation = orientation
+        let landscape = orientation == .landscapeLeft || orientation == .landscapeRight
+        let settled = NSPredicate { _, _ in
+            let frame = app.windows.firstMatch.frame
+            return frame.width > 0 && (landscape ? frame.width > frame.height : frame.height > frame.width)
+        }
+        XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)], timeout: 10) == .completed)
         return app
     }
 
@@ -194,12 +203,14 @@ final class MusaControlUITests: XCTestCase {
             let surface = app.buttons["studio.surface"]
             XCTAssertTrue(surface.waitForExistence(timeout: 5))
             sleep(3)
-            let pane = app.descendants(matching: .any)["studio.evidence-pane.plan"]
-            if pane.exists {
-                XCTAssertGreaterThan(pane.frame.width, 200)
-                XCTAssertLessThanOrEqual(pane.frame.maxX, app.frame.maxX + 2)
-                XCTAssertLessThanOrEqual(pane.frame.maxY, app.frame.maxY + 2)
-            }
+            let evidence = app.descendants(matching: .any)["studio.evidence"].firstMatch
+            XCTAssertTrue(evidence.waitForExistence(timeout: 5))
+            let bounds = evidence.frame
+            let window = app.windows.firstMatch.frame
+            XCTAssertTrue(bounds.width.isFinite && bounds.height.isFinite)
+            XCTAssertGreaterThan(bounds.width, 200)
+            XCTAssertLessThanOrEqual(bounds.maxX, window.maxX + 2)
+            XCTAssertLessThanOrEqual(bounds.maxY, window.maxY + 2)
             snap(app, "live-workspace-\(tag)")
             surface.tap()
             XCTAssertTrue(app.buttons["Browser / game"].waitForExistence(timeout: 3))
