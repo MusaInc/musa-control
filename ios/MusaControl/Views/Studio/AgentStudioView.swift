@@ -24,6 +24,7 @@ struct AgentStudioView: View {
         VStack(spacing: 0) {
             if let d = director {
                 StudioHeader(agentId: agentId, agent: agent, director: d)
+                    .transaction { $0.animation = nil; $0.disablesAnimations = true }
                 StudioLiveView(d: d, agent: agent)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -392,13 +393,6 @@ struct StudioWindow<Accessory: View, Content: View>: View {
                           c.floating ? "Dock \(title)" : "Pop out \(title)", c.toggleFloat)
                 }
                 .padding(.leading, -5)
-            } else {
-                HStack(spacing: 5) {
-                    Circle().fill(Color(red: 0.98, green: 0.37, blue: 0.34))
-                    Circle().fill(Color(red: 0.99, green: 0.74, blue: 0.18))
-                    Circle().fill(Color(red: 0.16, green: 0.79, blue: 0.25))
-                }
-                .frame(height: 9).opacity(active ? 0.95 : 0.45)
             }
             Image(systemName: icon).font(.system(size: 11, weight: .medium))
             Text(title).font(.system(size: 12, weight: .semibold)).fixedSize(horizontal: false, vertical: true).truncationMode(.middle)

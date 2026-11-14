@@ -37,11 +37,12 @@ struct StudioLiveView: View {
                 case "screens": LightboxPane(photos: d.photos)
                 case "preview":
                     if let project = agent?.project { PreviewPanel(projectId: project) }
-                default: StudioStage(director: d, agent: agent)
+                default: StudioEvidenceView(d: d, agent: agent)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .transaction { $0.animation = nil; $0.disablesAnimations = true }
         .onChange(of: d.currentEvent?.stableId) { _, _ in follow() }
         .onChange(of: automatic) { _, enabled in if enabled { follow() } }
         .onAppear { follow() }

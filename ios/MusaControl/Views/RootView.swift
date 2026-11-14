@@ -288,7 +288,7 @@ struct MachineSwitcher: View {
         } label: {
             HStack(spacing: 6) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(app.activeMachine?.name ?? "Musa Control").font(.system(size: 14.5, weight: .semibold)).lineLimit(1).foregroundStyle(Theme.text)
+                    Text("Musa Control").font(.system(size: 14.5, weight: .semibold)).lineLimit(1).foregroundStyle(Theme.text)
                     Text(app.activeMachine?.kindLabel ?? "").font(.system(size: 11)).foregroundStyle(Theme.textFaint).lineLimit(1)
                 }
                 ConnectionDot()
