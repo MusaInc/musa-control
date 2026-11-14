@@ -24,8 +24,7 @@ struct AgentStudioView: View {
         VStack(spacing: 0) {
             if let d = director {
                 StudioHeader(agentId: agentId, agent: agent, director: d)
-                StudioStage(director: d, agent: agent)
-                StudioScrubber(d: d)
+                StudioLiveView(d: d, agent: agent)
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -88,19 +87,19 @@ struct StudioHeader: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     if let p = app.project(agent?.project) {
-                        Text(p.name).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.accent).lineLimit(1)
+                        Text(p.name).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.accent).fixedSize(horizontal: false, vertical: true)
                         Text("·").foregroundStyle(Theme.textFaint)
                     }
-                    Text(agent?.agentName ?? "Agent").font(.system(size: 12.5)).foregroundStyle(Theme.textDim).lineLimit(1).fixedSize()
+                    Text(agent?.agentName ?? "Agent").font(.system(size: 12.5)).foregroundStyle(Theme.textDim).fixedSize(horizontal: false, vertical: true).fixedSize()
                     if !compact { LivePill(mode: director.mode, status: status) }
                 }
-                Text(agent?.title ?? "Agent session").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                Text("Live workspace").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
                     Image(systemName: captionIcon).font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(status == "approval" ? Theme.yellow : agent?.tint ?? Theme.accent)
                         .symbolEffect(.bounce, value: captionText)
                         .frame(width: 16)
-                    Text(captionText).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(captionText).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.interpolate)
                         .id(captionText)
                         .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
@@ -139,9 +138,6 @@ struct StudioHeader: View {
 
     var buttons: some View {
         HStack(spacing: 2) {
-            if !director.busy {
-                IconButton(systemName: "arrow.counterclockwise", help: "Replay the last few actions") { director.replay() }
-            }
             if let t = agent?.tmux?.session {
                 IconButton(systemName: "terminal", help: "Open its terminal") { app.attachTerminal(t) }
             }
@@ -215,7 +211,7 @@ struct StudioStage: View {
             let area = CGRect(x: pad, y: pad, width: max(0, geo.size.width - pad * 2), height: max(0, geo.size.height - pad * 2))
             let layout = d.board.layout(in: area.size)
             let approving = agent?.approval != nil
-            let target = animates && !approving ? StageCamera.shot(stage: geo.size, focus: d.focus.flatMap { d.frames[$0] }) : StageCamera.Shot()
+            let target = StageCamera.Shot()
             ZStack(alignment: .topLeading) {
                 // Depth: the backdrop moves less than the windows.
                 StageBackdrop(tint: agent?.tint ?? Theme.accent, active: agent?.status == "working")
@@ -234,11 +230,12 @@ struct StudioStage: View {
                     CelebrateBurst(tick: d.celebrateTick, animates: animates)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .zIndex(32)
-                    if animates {
+                    if animates && d.playback != .live {
                         CursorTrail(point: d.cursor, tint: agent?.tint ?? Theme.accent).zIndex(39)
                     }
-                    StudioCursor(d: d, name: agent?.shortName ?? "Agent", tint: agent?.tint ?? Theme.accent)
-                        .zIndex(40)
+                    if d.playback != .live {
+                        StudioCursor(d: d, name: agent?.shortName ?? "Agent", tint: agent?.tint ?? Theme.accent).zIndex(40)
+                    }
                 }
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
                 .coordinateSpace(.named("stage"))
@@ -404,7 +401,7 @@ struct StudioWindow<Accessory: View, Content: View>: View {
                 .frame(height: 9).opacity(active ? 0.95 : 0.45)
             }
             Image(systemName: icon).font(.system(size: 11, weight: .medium))
-            Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+            Text(title).font(.system(size: 12, weight: .semibold)).fixedSize(horizontal: false, vertical: true).truncationMode(.middle)
             Spacer(minLength: 4)
             accessory
             if let c = controls, !c.floating {
@@ -423,7 +420,7 @@ struct StudioWindow<Accessory: View, Content: View>: View {
         }
         .foregroundStyle(dark ? Theme.inkDim : Theme.textDim)
         .padding(.horizontal, 10)
-        .frame(height: M.chrome)
+        .frame(minHeight: M.chrome)
         .background(dark ? Theme.inkRaised : Theme.raised)
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 6, coordinateSpace: .named("stage"))
@@ -456,7 +453,7 @@ struct ExplorerWindow: View {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Theme.textFaint)
                     if let q = d.searchText {
-                        Text(q).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.head)
+                        Text(q).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true).truncationMode(.head)
                         BlinkCaret(color: Theme.accent, height: 13)
                     } else {
                         Text("Search").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
@@ -469,19 +466,21 @@ struct ExplorerWindow: View {
                 .padding(.horizontal, 8)
                 .frame(height: M.explorerSearch)
 
-                ZStack(alignment: .topLeading) {
-                    ForEach(Array(d.tree.enumerated()), id: \.element.id) { i, row in
-                        TreeRowView(row: row, active: d.activeRow == row.path)
-                            .frame(height: M.rowH)
-                            .offset(y: CGFloat(i) * M.rowH - d.treeScroll)
-                            .transition(.opacity)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 3) {
+                            ForEach(d.tree) { row in
+                                TreeRowView(row: row, active: d.activeRow == row.path).id(row.path)
+                            }
+                            if d.tree.isEmpty {
+                                Text("Files appear as the agent opens them").font(Theme.caption).foregroundStyle(Theme.textFaint).padding(12)
+                            }
+                        }
                     }
-                    if d.tree.isEmpty {
-                        Text("Files appear here as the agent opens them").font(Theme.caption).foregroundStyle(Theme.textFaint).padding(12)
+                    .onChange(of: d.activeRow) { _, path in
+                        if let path { withAnimation { proxy.scrollTo(path, anchor: .center) } }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .clipped()
             }
         }
     }
@@ -512,12 +511,12 @@ struct TreeRowView: View {
             Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Theme.textFaint)
                 .rotationEffect(.degrees(row.open ? 90 : 0)).opacity(row.dir ? 1 : 0).frame(width: 10)
             Image(systemName: g.0).font(.system(size: 11)).foregroundStyle(g.1).frame(width: 15)
-            Text(row.name).font(.system(size: 12.5, weight: active ? .semibold : .regular)).foregroundStyle(active ? Theme.text : Theme.textDim).lineLimit(1)
+            Text(row.name).font(.system(size: 12.5, weight: active ? .semibold : .regular)).foregroundStyle(active ? Theme.text : Theme.textDim).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(.leading, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: M.rowH - 3)
+        .padding(.vertical, 5)
         .background(active ? Theme.accent.opacity(0.17) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .padding(.horizontal, 6)
         .animation(.easeOut(duration: 0.2), value: row.open)
@@ -557,6 +556,7 @@ struct EditorWindow: View {
     }
 
     var tabs: some View {
+        ScrollView(.horizontal) {
         HStack(spacing: 0) {
             ForEach(d.tabs, id: \.self) { t in
                 let name = (t as NSString).lastPathComponent
@@ -564,7 +564,7 @@ struct EditorWindow: View {
                 let g = fileGlyph(name, dir: false)
                 HStack(spacing: 5) {
                     Image(systemName: g.0).font(.system(size: 10)).foregroundStyle(g.1)
-                    Text(name).font(.system(size: 12, weight: on ? .semibold : .regular)).lineLimit(1)
+                    Text(name).font(.system(size: 12, weight: on ? .semibold : .regular)).fixedSize()
                     if on && d.modified { Circle().fill(Theme.textDim).frame(width: 5, height: 5) }
                 }
                 .foregroundStyle(on ? Theme.text : Theme.textFaint)
@@ -576,6 +576,7 @@ struct EditorWindow: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
             Spacer(minLength: 0)
+        }
         }
         .frame(height: M.tabBar)
         .background(Theme.raised.opacity(0.55))
@@ -606,7 +607,7 @@ struct CodeArea: View {
                     CodeLineRow(number: i + 1, text: line.text, mark: line.mark, sel: line.sel, path: path, scrollX: d.scrollX, animates: animates)
                         .equatable()
                         .offset(y: M.codeTop + CGFloat(i) * M.lineH - d.scrollY)
-                        .transition(.codeLine(Theme.green, animates: animates))
+                        .transition(.identity)
                 }
                 if let c = d.caret, c.line >= first, c.line <= last {
                     let x = M.gutter + M.codePad + CGFloat(c.col) * M.codeCharW - d.scrollX - 1
@@ -627,7 +628,7 @@ struct CodeArea: View {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
                         Text(q.isEmpty ? "Go to file…" : q).font(.system(size: 13.5, design: .monospaced))
-                            .foregroundStyle(q.isEmpty ? Theme.textFaint : Theme.text).lineLimit(1)
+                            .foregroundStyle(q.isEmpty ? Theme.textFaint : Theme.text).fixedSize(horizontal: false, vertical: true)
                         BlinkCaret(color: Theme.accent, height: 15)
                         Spacer(minLength: 0)
                     }
@@ -726,26 +727,28 @@ struct TerminalWindow: View {
                     .foregroundStyle(Color.white.opacity(0.7))
             }
         } content: {
+            ScrollView([.horizontal, .vertical]) {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(d.term.suffix(40)) { l in
                     Text(l.text).font(.system(size: 12, design: .monospaced)).foregroundStyle(color(l.kind))
-                        .lineLimit(1).truncationMode(.tail)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                         .frame(maxWidth: .infinity, minHeight: M.termLineH, maxHeight: M.termLineH, alignment: .leading)
                         .background(l.id == d.term.last?.id && animates ? color(l.kind).opacity(0.08) : .clear)
                         .transition(.opacity)
                 }
                 HStack(spacing: 0) {
                     (Text(d.prompt).foregroundStyle(Color(red: 0.5, green: 0.75, blue: 1.0)) + Text(d.termTyping ?? "").foregroundStyle(Color.white))
-                        .font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.head)
+                        .font(.system(size: 12, design: .monospaced)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                     if !d.termBusy { BlinkCaret(color: .white.opacity(0.85), height: 13) }
                     Spacer(minLength: 0)
                 }
                 .frame(height: M.termLineH)
             }
-            .fixedSize(horizontal: false, vertical: true)
+            .fixedSize(horizontal: true, vertical: true)
             .padding(.horizontal, M.termPad).padding(.bottom, M.termPad)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .clipped()
+            }
+            .defaultScrollAnchor(.bottom)
             .modifier(Shake(animatableData: animates ? CGFloat(d.shakeTick) : 0))
             .animation(.linear(duration: 0.45), value: d.shakeTick)
             .modifier(FailureFlare(tick: d.shakeTick, animates: animates))
@@ -785,7 +788,7 @@ struct Polaroid: View {
                 .frame(maxHeight: compact ? 90 : 360)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
             Text(photo.title).font(.system(size: compact ? 9.5 : 12, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.black.opacity(0.6)).lineLimit(1).truncationMode(.middle)
+                .foregroundStyle(Color.black.opacity(0.6)).fixedSize(horizontal: false, vertical: true).truncationMode(.middle)
         }
         .padding(compact ? 6 : 12)
         .background(Color(white: 0.98), in: RoundedRectangle(cornerRadius: 5))

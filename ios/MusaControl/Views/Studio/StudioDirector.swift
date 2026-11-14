@@ -270,6 +270,10 @@ final class StudioDirector {
     // Status
     var caption = "Getting ready"
     var captionIcon = "sparkles"
+    // Kept independently of scene playback so narration never disappears.
+    var narration = ""
+    var currentAction = "Waiting for activity"
+    var currentEvent: TimelineEvent?
     var mode: Mode = .loading
     var busy = false
     var queued = 0
@@ -309,15 +313,15 @@ final class StudioDirector {
         history = evs.sorted { $0.ts < $1.ts }
         for e in history { seen.insert(e.stableId) }
         marks = Scrub.marks(history)
-        let replay = Array(history.filter(Self.isScene).suffix(6))
-        let cutoff = replay.first?.ts ?? .infinity
-        prime(history.filter { $0.ts < cutoff })
-        if replay.isEmpty {
-            mode = .live
-            setCaption("Waiting for the agent's next move", icon: "cup.and.saucer")
-        } else {
-            mode = .catchingUp
-            enqueue(replay)
+        prime(history)
+        narration = history.last(where: { $0.kind == "agent.message" }).map { Self.plainText($0.detail?["text"]?.string ?? $0.title, 0) } ?? ""
+        currentEvent = history.last
+        currentAction = history.last?.title ?? "Waiting for activity"
+        mode = .live
+        // Resolve only the most recent visual evidence; opening a studio
+        // must not replay minutes of work before showing the present.
+        if let latest = history.last(where: { ["agent.read", "agent.edit", "agent.image"].contains($0.kind) }) {
+            enqueue([latest])
         }
     }
 
@@ -326,6 +330,13 @@ final class StudioDirector {
         guard mode != .loading || !history.isEmpty else { return }
         let fresh = evs.filter { $0.session == agentId && seen.insert($0.stableId).inserted }.sorted { $0.ts < $1.ts }
         guard !fresh.isEmpty else { return }
+        for e in fresh {
+            if e.kind == "agent.message" { narration = Self.plainText(e.detail?["text"]?.string ?? e.title, 0) }
+            if Self.isScene(e) || ["agent.done", "agent.error", "agent.approval"].contains(e.kind) {
+                currentAction = e.title
+                currentEvent = e
+            }
+        }
         if playback != .live {
             // Rewound: keep the new events for later, don't play them over the replay.
             for e in fresh { record(e) }
@@ -514,6 +525,8 @@ final class StudioDirector {
         return mode == .catchingUp ? base * 1.5 : base
     }
     private func wait(_ s: Double) async {
+        // Live rendering applies evidence immediately, without staged typing delays.
+        guard playback != .live else { return }
         try? await Task.sleep(nanoseconds: UInt64(max(0, s / speed) * 1_000_000_000))
     }
     private var cancelled: Bool { Task.isCancelled }
@@ -548,12 +561,13 @@ final class StudioDirector {
     /// to glide into place before the cursor aims at them.
     private func present(_ focus: PaneKind?, also: [PaneKind] = []) async {
         let before = board.layout(in: boardSize).frames
+        if let focus { self.focus = focus.region }
         withAnimation(reduceMotion ? nil : .spring(duration: 0.55, bounce: 0.12)) {
             for k in also { board.spawn(k, focus: false) }
             if let focus { board.spawn(focus, focus: !userSteering) }
         }
         guard board.layout(in: boardSize).frames != before else { return }
-        try? await Task.sleep(nanoseconds: reduceMotion ? 80_000_000 : 450_000_000)
+        if playback != .live { try? await Task.sleep(nanoseconds: reduceMotion ? 80_000_000 : 450_000_000) }
     }
     private func shows(_ k: PaneKind) -> Bool { board.layout(in: boardSize).frames[k] != nil && frames[k.region] != nil }
 
@@ -709,6 +723,12 @@ final class StudioDirector {
         let withTree: Bool = inTree && openPath != abs && WindowBoard.capacity(boardSize) >= 3
         await present(.editor, also: withTree ? [PaneKind.explorer] : [])
         if openPath == abs { return }
+        if playback == .live {
+            if !tabs.contains(abs) { tabs.append(abs); if tabs.count > 5 { tabs.removeFirst() } }
+            openPath = abs
+            activeRow = abs
+            return
+        }
         let name = (abs as NSString).lastPathComponent
         setCaption("Looking for \(name)", icon: "magnifyingglass")
         if showExplorer, shows(.explorer), let root, projectId != nil, abs.hasPrefix(root + "/") {
@@ -812,6 +832,11 @@ final class StudioDirector {
             else { showDoc([], note: "\(name) isn't inside a project, so its contents can't be shown here.") }
         }
         guard !lines.isEmpty else { await wait(0.9); return }
+        if playback == .live {
+            let offset = Int(e.detail?["offset"]?.number ?? 1)
+            await reveal(max(0, offset - 1))
+            return
+        }
         let start = max(0, min(Int(scrollY / M.lineH), lines.count - 1))
         let stop = min(lines.count - 1, start + max(visibleLines + 20, 60))
         await move(to: linePoint(start, col: indent(lines[start].text)), style: .ibeam)
@@ -877,13 +902,14 @@ final class StudioDirector {
         modified = true
         for (i, op) in script.ops.enumerated() {
             if cancelled { break }
-            if i < 6 { await perform(op) } else { applyInstantly(op) }
+            if playback != .live && i < 6 { await perform(op) } else { applyInstantly(op) }
         }
         if !script.tail.isEmpty {
             var extra: [EdLine] = []
             for l in script.tail { seq += 1; extra.append(EdLine(id: seq, text: l, mark: .added)) }
             withAnimation(.easeOut(duration: 0.3)) { lines.append(contentsOf: extra) }
         }
+        if let first = script.ops.first { await reveal(first.line) }
         await wait(0.3)
         modified = false
         savedTick &+= 1
@@ -1024,7 +1050,7 @@ final class StudioDirector {
 
     nonisolated static func oneLine(_ s: String, _ n: Int) -> String {
         let t = s.replacingOccurrences(of: "\n", with: " ⏎ ").replacingOccurrences(of: "\t", with: " ")
-        return t.count > n ? String(t.prefix(n - 1)) + "…" : t
+        return t
     }
     nonisolated static func stripAnsi(_ s: String) -> String {
         s.replacingOccurrences(of: "\u{1B}\\[[0-9;?]*[A-Za-z]", with: "", options: .regularExpression)
@@ -1033,6 +1059,12 @@ final class StudioDirector {
     private func typeCommand(_ raw: String) async {
         let cmd = Self.oneLine(raw, 260)
         lastCommand = raw
+        if playback == .live {
+            appendTerm(prompt + cmd, .command)
+            termTyping = nil
+            termBusy = false
+            return
+        }
         termBusy = false
         await move(to: termPoint(col: prompt.count), style: .ibeam)
         await click()
@@ -1057,10 +1089,10 @@ final class StudioDirector {
         termBusy = false
         let all = out.components(separatedBy: "\n").map { Self.stripAnsi($0) }.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         let tail = Array(all.suffix(12))
-        if all.count > tail.count { appendTerm("… \(all.count - tail.count) earlier lines", .note) }
-        for l in tail {
+        if playback != .live && all.count > tail.count { appendTerm("\(all.count - tail.count) earlier lines", .note) }
+        for l in (playback == .live ? all : tail) {
             if cancelled { break }
-            withAnimation(.easeOut(duration: 0.12)) { appendTerm(String(l.prefix(300)), .output) }
+            withAnimation(.easeOut(duration: 0.12)) { appendTerm(l, .output) }
             await wait(0.045)
         }
         let code = exit.map { " (exit \($0))" } ?? ""
@@ -1165,11 +1197,16 @@ final class StudioDirector {
         var t = s.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
         t = t.replacingOccurrences(of: "(?m)^#+\\s*", with: "", options: .regularExpression)
         t = t.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.count > n ? String(t.prefix(n - 1)) + "…" : t
+        return t
     }
 
     private func playMessage(_ e: TimelineEvent) async {
-        let text = Self.plainText(e.detail?["text"]?.string ?? e.title, 560)
+        let text = Self.plainText(e.detail?["text"]?.string ?? e.title, 0)
+        if playback == .live {
+            thought = text
+            thoughtDone = true
+            return
+        }
         setCaption("Writing down what it found", icon: "text.bubble")
         await present(.thought)
         if let f = frames[.thought] { await move(to: CGPoint(x: f.minX + 40, y: f.minY + 46), style: .arrow) }
@@ -1233,6 +1270,13 @@ final class StudioDirector {
         setCaption(e.detail?["via"]?.string == "command" ? "Took a screenshot" : "Looking at a picture", icon: "photo")
         guard let src = await imageSource(path, session: e.session) else { await wait(0.4); return }
         let p = StudioPhoto(id: e.stableId, title: (path as NSString).lastPathComponent, path: src.0, query: src.1)
+        if playback == .live {
+            photos.removeAll { $0.id == p.id }
+            photos.append(p)
+            if photos.count > 8 { photos.removeFirst() }
+            board.spawn(.lightbox, focus: !userSteering)
+            return
+        }
         let f = rect(.stage)
         await move(to: CGPoint(x: f.midX + 40, y: f.midY + 60), style: .hand)
         withAnimation(.spring(duration: 0.55, bounce: 0.3)) { heroPhoto = p }
@@ -1310,7 +1354,7 @@ final class StudioDirector {
             }
             if let out = e.detail?["output"]?.string {
                 for l in out.components(separatedBy: "\n").map(Self.stripAnsi).filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).suffix(3) {
-                    appendTerm(String(l.prefix(300)), .output)
+                    appendTerm(l, .output)
                 }
                 let ok = e.kind != "agent.command_failed" && (e.detail?["ok"]?.bool ?? true)
                 appendTerm(ok ? "✓ done" : "✗ failed", ok ? .ok : .fail)

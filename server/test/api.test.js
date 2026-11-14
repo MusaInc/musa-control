@@ -33,11 +33,15 @@ before(async () => {
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], { cwd: proj });
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: proj });
   fs.mkdirSync(claudeDir); fs.mkdirSync(codexDir);
-  const failing = path.join(tmp, "failing-claude"); fs.writeFileSync(failing, "#!/bin/bash\necho 'Error: not logged in'\nexit 3\n"); fs.chmodSync(failing, 0o755);
+  const failing = path.join(tmp, "failing-claude"); fs.writeFileSync(failing, `#!/bin/bash
+printf 'ARG:%s\n' "$@"
+echo 'Error: not logged in'
+exit 3
+`); fs.chmodSync(failing, 0o755);
   const hashFile = path.join(tmp, "hash"); fs.writeFileSync(hashFile, bcrypt.hashSync("correct horse", 4));
   app = createServer({ port: PORT, dataDir: path.join(tmp, "data"), passwordHashFile: hashFile, roots: [{ path: root, depth: 1, requireGit: false }], extra: [], exclude: [],
     claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"], authorizedKeysFile: path.join(tmp, "authorized_keys"),
-    claudeBinary: failing, apnsConfigFile: path.join(tmp, "no-apns.json"), apnsTransport: async (m) => { pushes.push({ ...m, payload: JSON.parse(m.body) }); return { status: 200 }; } });
+    claudeBinary: failing, codexBinary: failing, geminiBinary: failing, apnsConfigFile: path.join(tmp, "no-apns.json"), apnsTransport: async (m) => { pushes.push({ ...m, payload: JSON.parse(m.body) }); return { status: 200 }; } });
   await app.start();
   base = `http://127.0.0.1:${PORT}`;
 });
@@ -314,4 +318,24 @@ test("push: risky or partly hidden commands need the app; muted projects stay qu
   assert.equal(pushes.at(-1).payload.aps.category, "MC_INPUT", "a finished turn ending in a question asks for input");
   await app.push._onEvent({ id: 1000001, kind: "agent.command_failed", project: "demo", session: "codex:x", notify: 0, title: "Failed (1): rg foo", detail: {} });
   assert.equal(pushes.at(-1).payload.aps.category, "MC_INPUT", "routine command failures never push");
+});
+
+// Capture the actual launched argv, without starting a model or doing work.
+test("unattended launch uses provider-native permissions and preserves prompts literally", async () => {
+  for (const [agent, flag] of [["claude", "--dangerously-skip-permissions"], ["codex", "--dangerously-bypass-approvals-and-sandbox"], ["gemini", "yolo"]]) {
+    const prompt = "Keep working; $(echo should-not-execute) 'quoted'";
+    const r = await api("POST", "/api/agents", { agent, project: "demo", prompt, mode: "unattended", allowDuplicate: true });
+    assert.equal(r.status, 502); // the capture-only fake exits immediately
+    assert.ok(r.body.output.includes("ARG:" + flag), `${agent}: native unattended flag`);
+    assert.ok(r.body.output.includes("ARG:" + prompt), `${agent}: literal prompt`);
+    assert.ok(!r.body.output.includes("ARG:on-request"));
+  }
+});
+
+test("default launch still asks; unattended is an explicit saved client choice", async () => {
+  const r = await api("POST", "/api/agents", { agent: "codex", project: "demo", prompt: "hello", allowDuplicate: true });
+  assert.equal(r.status, 502);
+  assert.match(r.body.output, /ARG:on-request/);
+  assert.match(r.body.output, /ARG:workspace-write/);
+  assert.ok(!r.body.output.includes("--dangerously-bypass"));
 });

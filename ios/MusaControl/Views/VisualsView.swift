@@ -46,6 +46,8 @@ struct RemoteDesktopPanel: View {
     @Environment(\.compactLayout) private var narrow
     let initialDisplay: String
     var compact = false
+    var expanded = false
+    var initialControl = false
     @Environment(AppModel.self) private var app
     @State private var displays: [Display] = []
     @State private var display = "99"
@@ -67,7 +69,8 @@ struct RemoteDesktopPanel: View {
             }
             if control && !compact, let controller {
                 HStack(spacing: 6) {
-                    TextField("Type into the remote desktop…", text: $typing).font(Theme.mono)
+                    TextField("Type into the remote desktop", text: $typing)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().font(Theme.mono)
                         .onSubmit { controller.type(typing + "\n"); typing = "" }
                         .padding(.horizontal, 8).frame(height: 30).background(Theme.bg, in: RoundedRectangle(cornerRadius: 6))
                     Button("Send") { controller.type(typing); typing = "" }.font(Theme.label)
@@ -80,10 +83,10 @@ struct RemoteDesktopPanel: View {
             }
         }
         .background(Color(Theme.terminalBg))
-        .task { display = initialDisplay; await loadDisplays(); makeController() }
+        .task { display = initialDisplay; control = initialControl; await loadDisplays(); makeController() }
         .fullScreenCover(isPresented: $fullscreen) {
             ZStack(alignment: .topTrailing) {
-                if let controller { VNCWebView(controller: VNCController(display: controller.display, mode: controller.mode)).ignoresSafeArea() }
+                RemoteDesktopPanel(initialDisplay: display, expanded: true, initialControl: control)
                 Button { fullscreen = false } label: { Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).padding(10).background(.ultraThinMaterial, in: Circle()) }
                     .buttonStyle(.plain).padding(16)
             }
@@ -107,7 +110,7 @@ struct RemoteDesktopPanel: View {
                 Label(displays.first { $0.display == display }?.label ?? "Display :\(display)", systemImage: "display").font(Theme.label)
             }
             Divider().frame(height: 18)
-            Picker("", selection: Binding(get: { control ? "control" : "observe" }, set: { v in if v == "control" { confirmControl = true } else { control = false; controller?.setMode("observe"); makeController() } })) {
+            Picker("", selection: Binding(get: { control ? "control" : "observe" }, set: { v in if v == "control" { control = true; makeController() } else { control = false; controller?.setMode("observe"); makeController() } })) {
                 Label("Observe", systemImage: "eye").tag("observe")
                 Label("Control", systemImage: "cursorarrow.click.2").tag("control")
             }
@@ -115,7 +118,7 @@ struct RemoteDesktopPanel: View {
             Text(displays.first { $0.display == display }?.controlledBy ?? "").font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             Spacer()
             IconButton(systemName: "arrow.clockwise", help: "Reconnect") { controller?.reconnect() }
-            IconButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Full screen") { fullscreen = true }
+            if !expanded { IconButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Full screen") { fullscreen = true } }
         }
         .padding(.horizontal, 10).scrollsWhenCompact(narrow).frame(height: 40).background(Theme.raised)
     }
@@ -134,7 +137,12 @@ struct RemoteDesktopPanel: View {
     }
 
     func makeController() { controller = VNCController(display: display, mode: control ? "control" : "observe") }
-    func loadDisplays() async { if let d = try? await app.client.get("/api/vnc/displays", as: [Display].self) { displays = d } }
+    func loadDisplays() async {
+        if let d = try? await app.client.get("/api/vnc/displays", as: [Display].self) {
+            displays = d
+            if !d.contains(where: { $0.display == display }), let first = d.first { display = first.display }
+        }
+    }
 }
 
 // MARK: - Screenshots

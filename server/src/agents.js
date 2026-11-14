@@ -305,7 +305,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     const st = statusOf(s);
     return {
       id: s.key, agent: s.agent, agentName: agentName(s.agent), sessionId: s.sessionId, project: s.project, projectInferred: Boolean(s.projectInferred && !s.cwdProject), cwd: s.cwd, title: s.title || (s.cwd ? path.basename(s.cwd) : "Session"),
-      lastPrompt: s.lastPrompt?.slice(0, 600) || null, lastMessage: s.lastMessage?.slice(0, 600) || null, status: st.status, statusText: st.text,
+      lastPrompt: s.lastPrompt?.slice(0, 20000) || null, lastMessage: s.lastMessage?.slice(0, 20000) || null, status: st.status, statusText: st.text,
       lastActivity: s.lastActivity, startedAt: s.startedAt || null, model: s.model || null, pid: s.pid || null, mode: s.mode || null,
       tmux: s.tmux ? { session: s.tmux.session, target: s.tmux.target } : null, managed: s.managed || null, controllable: Boolean(s.tmux),
       approval: prompts.get(s.key) || null, counts: s.counts, lastEvent: s.lastEvent || null,
@@ -340,21 +340,23 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     if (agent === "claude") {
       const args = [cfg.claudeBinary];
       if (resume) args.push("--resume", resume); else args.push("--session-id", id);
-      if (["acceptEdits", "plan", "default"].includes(mode)) args.push("--permission-mode", mode);
+      if (mode === "unattended") args.push("--dangerously-skip-permissions");
+      else if (["acceptEdits", "plan", "default"].includes(mode)) args.push("--permission-mode", mode);
       if (model) args.push("--model", model);
       if (prompt && !resume) args.push("--", prompt);
       cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");
     } else if (agent === "gemini") {
       const args = [cfg.geminiBinary];
       if (resume) args.push("--resume", resume); else args.push("--session-id", id);
-      args.push("--approval-mode", { acceptEdits: "auto_edit", plan: "plan" }[mode] || "default");
+      args.push("--approval-mode", { acceptEdits: "auto_edit", plan: "plan", unattended: "yolo" }[mode] || "default");
       if (model) args.push("-m", model);
       if (prompt && !resume) args.push("-i", prompt);
       cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");
     } else {
       const args = [cfg.codexBinary];
       if (resume) args.push("resume", resume);
-      args.push("-a", "on-request", "-s", mode === "read-only" ? "read-only" : "workspace-write");
+      if (mode === "unattended") args.push("--dangerously-bypass-approvals-and-sandbox");
+      else args.push("-a", "on-request", "-s", mode === "read-only" ? "read-only" : "workspace-write");
       if (model) args.push("-m", model);
       if (prompt && !resume) args.push(prompt);
       cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");

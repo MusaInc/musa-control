@@ -185,28 +185,24 @@ final class MusaControlUITests: XCTestCase {
         snap(app, "studio2-light-editing")
     }
 
-    /// Scrubber: rewind to the start, replay at 8×, jump to a failure, back to Live.
-    func testStudioScrubber() {
-        let app = launch("deck", orientation: .landscapeLeft, extra: ["-studio", "codex:sample-5"])
-        XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8))
-        sleep(3)
-        let track = app.descendants(matching: .any)["studio.scrub.track"]
-        XCTAssertTrue(track.waitForExistence(timeout: 4), "scrubber track")
-        track.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).tap()
-        sleep(1)
-        snap(app, "scrub-rewound")
-        XCTAssertTrue(app.buttons["studio.scrub.live"].isEnabled, "Live is offered while rewound")
-        for _ in 0..<3 { app.buttons["studio.scrub.rate"].tap() }
-        app.buttons["studio.scrub.play"].tap()
-        sleep(2)
-        snap(app, "scrub-replaying-8x")
-        app.buttons["studio.scrub.play"].tap()
-        app.buttons["studio.scrub.next"].tap()
-        sleep(1)
-        snap(app, "scrub-jumped")
-        app.buttons["studio.scrub.live"].tap()
-        sleep(2)
-        snap(app, "scrub-live-again")
+    func testStudioLiveWorkspace() {
+        for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
+            let app = launch("deck", orientation: orientation, extra: ["-studio", "codex:sample-5"])
+            XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8))
+            XCTAssertTrue(app.descendants(matching: .any)["studio.narration"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.descendants(matching: .any)["studio.scrub.track"].exists)
+            let surface = app.buttons["studio.surface"]
+            XCTAssertTrue(surface.waitForExistence(timeout: 5))
+            sleep(3)
+            snap(app, "live-workspace-\(tag)")
+            surface.tap()
+            XCTAssertTrue(app.buttons["Browser / game"].waitForExistence(timeout: 3))
+            app.buttons["Browser / game"].tap()
+            sleep(2)
+            XCTAssertTrue(app.descendants(matching: .any)["studio.narration"].exists)
+            snap(app, "live-desktop-\(tag)")
+            app.terminate()
+        }
     }
 
     /// First run for a new user: welcome → add a computer → SSH form.

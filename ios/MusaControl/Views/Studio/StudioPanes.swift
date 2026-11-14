@@ -327,7 +327,7 @@ struct TestsPane: View {
                         if r.running { Text("Running…").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.blue) }
                         Spacer(minLength: 0)
                     }
-                    Text(r.command).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.textDim).lineLimit(1).truncationMode(.middle)
+                    Text(r.command).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.textDim).fixedSize(horizontal: false, vertical: true)
                     if r.cellCount > 0 {
                         TestMatrix(run: r).frame(maxWidth: .infinity, minHeight: 30, maxHeight: .infinity)
                     } else if !r.running {
@@ -478,7 +478,7 @@ struct RunHero: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(run.build ? "Building" : run.test ? "Testing" : "Running")
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.blue)
-                Text(run.command).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(2).truncationMode(.middle)
+                Text(run.command).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     Text("\(Fmt.duration(max(0, ctx.date.timeIntervalSince1970 - run.start / 1000))) so far")
                         .font(.system(size: 11.5).monospacedDigit()).foregroundStyle(Theme.textDim)
@@ -515,7 +515,7 @@ struct RunRow: View {
             }
             .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 1) {
-                Text(run.command).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                Text(run.command).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
                     if let d = run.duration { Text(d < 1 ? String(format: "%.0f ms", d * 1000) : String(format: "%.1f s", d)) }
                     else if run.lost { Text("no result reported") }
@@ -608,11 +608,11 @@ struct DiffColumn: View {
             ForEach(Array(lines.enumerated()), id: \.offset) { i, l in
                 HStack(spacing: 6) {
                     Text(added ? "+" : "−").foregroundStyle(added ? Theme.green : Theme.red).frame(width: 8)
-                    Text(l.isEmpty ? " " : l).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.tail)
+                    Text(l.isEmpty ? " " : l).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
                 .font(.system(size: 11.5, design: .monospaced))
-                .padding(.horizontal, 6).frame(height: 18)
+                .padding(.horizontal, 6).padding(.vertical, 2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -669,7 +669,7 @@ struct HeatCell: View {
             if size.width > 56 && size.height > 24 {
                 VStack(alignment: .leading, spacing: 1) {
                     Text((file.path as NSString).lastPathComponent).font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                     if size.height > 40 {
                         HStack(spacing: 6) {
                             if file.edits > 0 { Label("\(file.edits)", systemImage: "pencil") }

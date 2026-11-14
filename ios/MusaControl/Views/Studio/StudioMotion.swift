@@ -79,10 +79,7 @@ struct DissolveEffect: ViewModifier, Animatable {
 extension AnyTransition {
     /// Added lines materialise, removed lines dissolve; a plain fade without motion.
     static func codeLine(_ tint: Color, animates: Bool) -> AnyTransition {
-        guard animates else { return .opacity }
-        return .asymmetric(
-            insertion: .modifier(active: ScanInEffect(progress: 0, tint: tint), identity: ScanInEffect(progress: 1, tint: tint)),
-            removal: .modifier(active: DissolveEffect(progress: 1), identity: DissolveEffect(progress: 0)))
+        .identity
     }
 }
 

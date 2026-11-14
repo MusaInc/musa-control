@@ -10,7 +10,7 @@ struct AgentLauncher: View {
     @State private var agent = UserDefaults.standard.string(forKey: "launcher.agent") ?? "claude"
     @State private var project: String?
     @State private var prompt = ""
-    @State private var mode = "default"
+    @AppStorage("launcher.permissionMode") private var mode = "unattended"
     @State private var busy = false
     @State private var error: String?
     @State private var duplicate: String?
@@ -39,7 +39,7 @@ struct AgentLauncher: View {
                 .lineLimit(4...12).font(.system(size: 14)).focused($focus)
                 .padding(12).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("launcher.prompt")
-            Text("Runs on the server in tmux and keeps going if your device disconnects. Approvals arrive here as cards and notifications.")
+            Text("Keeps working when you disconnect. Unattended mode allows commands and edits across this computer without approval prompts.")
                 .font(Theme.caption).foregroundStyle(Theme.textFaint)
             if let error {
                 VStack(alignment: .leading, spacing: 6) {
@@ -67,7 +67,7 @@ struct AgentLauncher: View {
         .frame(maxHeight: Device.isPhone ? CGFloat.infinity : nil, alignment: .top)
         .background(Theme.surface)
         .onAppear { project = initialProject ?? app.workspaceProject; focus = true }
-        .onChange(of: agent) { _, a in mode = "default"; UserDefaults.standard.set(a, forKey: "launcher.agent") }
+        .onChange(of: agent) { _, a in mode = mode == "unattended" ? "unattended" : "default"; UserDefaults.standard.set(a, forKey: "launcher.agent") }
     }
 
     var runsIn: some View {
@@ -79,6 +79,7 @@ struct AgentLauncher: View {
 
     var permissions: some View {
         Picker("Permissions", selection: $mode) {
+            Text("Unattended · no approvals").tag("unattended")
             if agent == "claude" {
                 Text("Ask before acting").tag("default")
                 Text("Auto-accept edits").tag("acceptEdits")

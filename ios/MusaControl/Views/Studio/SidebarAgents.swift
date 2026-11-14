@@ -81,19 +81,19 @@ struct SidebarAgentRow: View {
             HStack(spacing: 9) {
                 AgentAvatar(kind: agent.agent, status: agent.status, size: 26)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(agent.title).font(.system(size: 13.5, weight: selected ? .semibold : .medium))
-                        .foregroundStyle(Theme.text).lineLimit(1)
+                    Text(agent.lastPrompt ?? agent.title).font(.system(size: 13.5, weight: selected ? .semibold : .medium))
+                        .foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 5) {
                         if agent.status == "working" { TypingDots(color: agent.tint, size: 3.5) }
                         Text(doing)
                             .foregroundStyle(agent.status == "approval" ? Theme.yellow : Theme.textDim)
-                            .lineLimit(1).truncationMode(.tail)
+                            .fixedSize(horizontal: false, vertical: true)
                             .contentTransition(.opacity)
                             .animation(.easeOut(duration: 0.25), value: doing)
                     }
                     .font(.system(size: 11.5))
                     if let p = app.project(agent.project) {
-                        Text("\(p.name) · \(agent.shortName)").font(.system(size: 11)).foregroundStyle(Theme.textFaint).lineLimit(1)
+                        Text("\(p.name) · \(agent.shortName)").font(.system(size: 11)).foregroundStyle(Theme.textFaint).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 0)
