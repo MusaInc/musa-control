@@ -77,6 +77,7 @@ struct StudioEvidenceView: View {
             }
         }
         .padding(12).background(Theme.bg)
+        .coordinateSpace(name: "stage")
         .onChange(of: d.currentEvent?.stableId) { _, _ in picked = nil }
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
@@ -96,6 +97,7 @@ struct StudioEvidenceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+        .studioRegion(kind.region, d)
         .accessibilityIdentifier("studio.evidence-pane.\(kind.rawValue)")
     }
 }

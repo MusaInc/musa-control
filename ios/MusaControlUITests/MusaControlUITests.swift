@@ -194,6 +194,12 @@ final class MusaControlUITests: XCTestCase {
             let surface = app.buttons["studio.surface"]
             XCTAssertTrue(surface.waitForExistence(timeout: 5))
             sleep(3)
+            let pane = app.descendants(matching: .any)["studio.evidence-pane.plan"]
+            if pane.exists {
+                XCTAssertGreaterThan(pane.frame.width, 200)
+                XCTAssertLessThanOrEqual(pane.frame.maxX, app.frame.maxX + 2)
+                XCTAssertLessThanOrEqual(pane.frame.maxY, app.frame.maxY + 2)
+            }
             snap(app, "live-workspace-\(tag)")
             surface.tap()
             XCTAssertTrue(app.buttons["Browser / game"].waitForExistence(timeout: 3))
