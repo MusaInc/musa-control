@@ -678,3 +678,42 @@ final class MachineTests: XCTestCase {
         XCTAssertEqual(AppSection.allCases.compactMap(\.shortcut).count, min(9, AppSection.allCases.count))
     }
 }
+
+final class LiveWorkspaceTests: XCTestCase {
+    func event(_ id: Int, _ kind: String, _ detail: [String: JSONValue] = [:], session: String = "live-test") -> TimelineEvent {
+        TimelineEvent(id: id, ts: Double(id), kind: kind, project: nil, session: session, title: kind, detail: .object(detail), notify: 0)
+    }
+
+    @MainActor
+    func testNarrationArrivesImmediatelyAndSurvivesOtherActivity() {
+        let client = GatewayClient(base: URL(string: "https://example.invalid")!, token: nil, transport: FixtureTransport())
+        let d = StudioDirector(agentId: "live-test", client: client)
+        d.mode = .live
+        let text = String(repeating: "A complete progress update. ", count: 50)
+        d.ingest([event(1, "agent.message", ["text": .string(text)])])
+        XCTAssertEqual(d.narration, text.trimmingCharacters(in: .whitespacesAndNewlines))
+        d.ingest([event(2, "agent.command", ["command": .string("npm test")])])
+        XCTAssertEqual(d.narration, text.trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertEqual(d.currentEvent?.kind, "agent.command")
+        d.ingest([event(3, "agent.message", ["text": .string("Other session")], session: "another")])
+        XCTAssertEqual(d.currentEvent?.kind, "agent.command")
+        d.stop()
+    }
+
+    func testLongCommandsAndNotesAreNotShortened() {
+        let command = "node " + String(repeating: "long_argument ", count: 80)
+        XCTAssertEqual(StudioDirector.oneLine(command, 20), command)
+        let note = String(repeating: "Keep the entire sentence. ", count: 80)
+        XCTAssertEqual(StudioDirector.plainText(note, 20), note.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    @MainActor
+    func testSearchUsesTheActualQueryAndActionsStayConcise() {
+        let d = StudioDirector(agentId: "live-test", client: GatewayClient(base: URL(string: "https://example.invalid")!, token: nil, transport: FixtureTransport()))
+        d.currentEvent = event(1, "agent.tool", ["tool": .string("Grep"), "input": .string("{\"pattern\":\"touch controls\"}")])
+        let view = StudioLiveView(d: d, agent: nil)
+        XCTAssertEqual(view.searchQuery, "touch controls")
+        d.currentEvent = event(2, "agent.edit", ["path": .string("/a/very/long/path/file.gd")])
+        XCTAssertEqual(view.action, "Editing a file")
+    }
+}

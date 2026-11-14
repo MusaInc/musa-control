@@ -587,6 +587,7 @@ struct EditorWindow: View {
 
 struct CodeArea: View {
     let d: StudioDirector
+    @State private var panOrigin: CGPoint?
     @Environment(\.stageAnimates) private var animates
 
     var body: some View {
@@ -644,6 +645,17 @@ struct CodeArea: View {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .clipped()
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 6)
+                .onChanged { value in
+                    if panOrigin == nil { panOrigin = CGPoint(x: d.scrollX, y: d.scrollY) }
+                    guard let origin = panOrigin else { return }
+                    d.userTouched()
+                    let width = CGFloat(d.lines.map { $0.text.count }.max() ?? 0) * M.codeCharW + M.gutter + M.codePad
+                    d.scrollX = min(max(0, width - geo.size.width), max(0, origin.x - value.translation.width))
+                    d.scrollY = min(max(0, CGFloat(d.lines.count) * M.lineH - geo.size.height), max(0, origin.y - value.translation.height))
+                }
+                .onEnded { _ in panOrigin = nil })
             .animation(.snappy(duration: 0.2), value: d.quickOpen != nil)
         }
     }

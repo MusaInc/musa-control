@@ -66,13 +66,30 @@ struct SidebarAgentRow: View {
         return t
     }
 
+    var taskLabel: String {
+        // A short, whole-word label; the complete task is in the studio.
+        let text = agent.lastPrompt ?? agent.title
+        return text.split(whereSeparator: { $0.isWhitespace }).prefix(10).joined(separator: " ").replacingOccurrences(of: "…", with: "")
+    }
+
     var doing: String {
         switch agent.status {
         case "approval": return "Needs your OK"
         case "idle": return "Waiting for you"
         default:
             let live = app.liveEvents.last { $0.session == agent.id && StudioDirector.isScene($0) }
-            return Self.verb(live?.title ?? agent.lastEvent?.title ?? "Working")
+            switch live?.kind ?? agent.lastEvent?.kind {
+            case "agent.edit": return "Editing a file"
+            case "agent.read": return "Reading a file"
+            case "agent.test": return "Running tests"
+            case "agent.command": return "Running a command"
+            case "agent.command_done": return "Command finished"
+            case "agent.command_failed": return "Command failed"
+            case "agent.message": return "Progress updated"
+            case "agent.image": return "Viewing a screenshot"
+            case "agent.tool": return "Using a tool"
+            default: return "Working"
+            }
         }
     }
 
@@ -81,7 +98,7 @@ struct SidebarAgentRow: View {
             HStack(spacing: 9) {
                 AgentAvatar(kind: agent.agent, status: agent.status, size: 26)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(agent.lastPrompt ?? agent.title).font(.system(size: 13.5, weight: selected ? .semibold : .medium))
+                    Text(taskLabel).font(.system(size: 13.5, weight: selected ? .semibold : .medium))
                         .foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 5) {
                         if agent.status == "working" { TypingDots(color: agent.tint, size: 3.5) }

@@ -44,7 +44,7 @@ struct RootView: View {
             }
         }
         .background(Theme.bg.ignoresSafeArea())
-        .overlay(alignment: .top) { if let b = app.banner { EventBanner(event: b).transition(.move(edge: .top).combined(with: .opacity)) } }
+        .overlay(alignment: .top) { if let b = app.banner, app.studioAgent == nil { EventBanner(event: b).transition(.move(edge: .top).combined(with: .opacity)) } }
         .animation(.spring(duration: 0.35), value: app.banner?.stableId)
         .sheet(isPresented: $app.showLauncher) { AgentLauncher(initialProject: app.launcherProject) }
         .sheet(isPresented: $app.showSwitcher) { QuickSwitcher() }

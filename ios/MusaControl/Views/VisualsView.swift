@@ -83,7 +83,16 @@ struct RemoteDesktopPanel: View {
             }
         }
         .background(Color(Theme.terminalBg))
-        .task { display = initialDisplay; control = initialControl; await loadDisplays(); makeController() }
+         .task {
+            display = initialDisplay; control = initialControl
+            await loadDisplays(); makeController()
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { break }
+                let previous = display
+                await loadDisplays()
+                if previous != display { makeController() }
+            }
+        }
         .fullScreenCover(isPresented: $fullscreen) {
             ZStack(alignment: .topTrailing) {
                 RemoteDesktopPanel(initialDisplay: display, expanded: true, initialControl: control)
