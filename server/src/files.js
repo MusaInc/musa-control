@@ -77,11 +77,24 @@ export function createFiles(cfg, projects, events, db) {
         .run(project.id, r, Date.now(), sha1(current), current.length, zlib.gzipSync(current), "disk");
     }
     await fsp.mkdir(path.dirname(full), { recursive: true });
-    const tmp = full + `.mc-${process.pid}-${Date.now()}.tmp`;
-    await fsp.writeFile(tmp, text);
-    if (current) { try { const st = await fsp.stat(full); await fsp.chmod(tmp, st.mode); } catch {} }
-    await fsp.rename(tmp, full);
+    const tmp = full + `.mc-${crypto.randomUUID()}.tmp`;
+    try {
+      await fsp.writeFile(tmp, text, { flag: "wx", mode: 0o600 });
+      if (current) await fsp.chmod(tmp, (await fsp.stat(full)).mode);
+      const latest = await fsp.readFile(full).catch(e => { if (e.code === "ENOENT") return null; throw e; });
+      if (!force && (latest ? sha1(latest) : null) !== (current ? sha1(current) : null)) {
+        return { status: 409, body: { error: "The file changed during save.", currentSha: latest ? sha1(latest) : null, currentText: latest && looksText(latest, r) ? latest.toString("utf8") : null } };
+      }
+      await fsp.rename(tmp, full);
+    } finally {
+      await fsp.unlink(tmp).catch(e => { if (e.code !== "ENOENT") throw e; });
+    }
     const s = sha1(Buffer.from(text));
+    if (db) {
+      const latest = db.raw.prepare("SELECT sha FROM revisions WHERE project=? AND path=? ORDER BY id DESC LIMIT 1").get(project.id, r);
+      if (latest?.sha !== s) db.raw.prepare("INSERT INTO revisions(project,path,ts,sha,size,content,source) VALUES(?,?,?,?,?,?,?)")
+        .run(project.id, r, Date.now(), s, Buffer.byteLength(text), zlib.gzipSync(Buffer.from(text)), "user");
+    }
     events.emit({ kind: "file.saved", project: project.id, title: `Saved ${r} from Musa Control`, detail: { path: r, sha: s, source: "user" } });
     return { status: 200, body: { path: r, sha: s } };
   }
@@ -148,27 +161,31 @@ export function createFiles(cfg, projects, events, db) {
     return meta;
   }
 
-  async function search(id, query, { mode = "content", limit = 200, regex = false, caseSensitive = false, wholeWord = false, includeIgnored = false } = {}) {
+  async function search(id, query, { mode = "content", limit = 200, regex = false, caseSensitive = false, wholeWord = false, includeIgnored = false, folder = "", extension = "", signal } = {}) {
     const { project } = projects.resolveInside(id, "");
+    if (folder) projects.resolveInside(id, folder);
+    const accepts = p => !projects.isSecret(p) && (!folder || p.startsWith(folder.replace(/\/$/, "") + "/")) && (!extension || p.endsWith("." + extension.replace(/^\./, "")));
     const globs = includeIgnored ? ["--no-ignore"] : [];
     for (const d of cfg.ignoreDirs) globs.push("-g", `!${d}/`);
     if (mode === "name") {
-      const r = await run("rg", ["--files", "--hidden", "-g", "!.git/", ...globs], { cwd: project.path, timeout: 15_000 });
+      const r = await run("rg", ["--files", "--hidden", "-g", "!.git/", ...globs], { cwd: project.path, timeout: 15_000, signal });
+      if (r.error) throw Object.assign(new Error("Filename search unavailable"), { status: 422 });
       const q = String(query).toLowerCase();
-      const files = r.stdout.split("\n").filter((f) => f && f.toLowerCase().includes(q) && !projects.isSecret(f)).slice(0, limit);
+      const files = r.stdout.split("\n").filter((f) => f && f.toLowerCase().includes(q) && accepts(f)).slice(0, limit);
       return { mode, results: files.map((f) => ({ path: f })) };
     }
     const r = await run("rg", ["--json", ...(regex ? [] : ["--fixed-strings"]), caseSensitive ? "--case-sensitive" : "--ignore-case", ...(wholeWord ? ["--word-regexp"] : []), "--max-count", "20", "--max-filesize", "2M", "--hidden", "-g", "!.git/", ...globs, "--", String(query), "."],
-      { cwd: project.path, timeout: 20_000 });
-    if (r.code > 1) throw Object.assign(new Error("Search failed. Check the expression and remote ripgrep installation."), { status: 422 });
+      { cwd: project.path, timeout: 20_000, signal });
+    if (r.error || r.code > 1) throw Object.assign(new Error("Search failed. Check the expression and remote ripgrep installation."), { status: 422 });
     const results = [];
     for (const line of r.stdout.split("\n")) {
       if (!line.startsWith("{")) continue;
       const ev = JSON.parse(line);
       if (ev.type !== "match") continue;
       const p = ev.data.path.text.replace(/^\.\//, "");
-      if (projects.isSecret(p)) continue;
-      results.push({ path: p, line: ev.data.line_number, text: ev.data.lines.text?.slice(0, 300) ?? "" });
+      if (!accepts(p)) continue;
+      if (mode === "symbols" && !/\b(func|function|class|struct|enum|interface|type|def|fn|protocol|let|const|var)\s/.test(ev.data.lines.text ?? "")) continue;
+      results.push({ path: p, line: ev.data.line_number, text: ev.data.lines.text ?? "" });
       if (results.length >= limit) break;
     }
     return { mode, results };

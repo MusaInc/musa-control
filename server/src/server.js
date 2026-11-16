@@ -204,7 +204,19 @@ export function createServer(overrides = {}) {
   route("POST", "/api/projects/:id/mkdir", ({ params, body }) => files.mkdir(params.id, body.path));
   route("POST", "/api/projects/:id/move", ({ params, body }) => files.move(params.id, body.from, body.to, { copy: Boolean(body.copy) }));
   route("POST", "/api/projects/:id/upload", async ({ params, q, req }) => files.upload(params.id, q.get("path"), await readBody(req, 200 * 1024 * 1024)), { raw: true });
-  route("GET", "/api/projects/:id/search", ({ params, q }) => files.search(params.id, q.get("q") || "", { mode: q.get("mode") || "content", regex: q.get("regex") === "true", caseSensitive: q.get("caseSensitive") === "true", wholeWord: q.get("wholeWord") === "true", includeIgnored: q.get("includeIgnored") === "true" }));
+  route("GET", "/api/projects/:id/search", async ({ params, q, res }) => {
+    const abort = new AbortController();
+    const cancel = () => abort.abort();
+    res.once("close", cancel);
+    try {
+      return await files.search(params.id, q.get("q") || "", {
+        mode: q.get("mode") || "content", regex: q.get("regex") === "true",
+        caseSensitive: q.get("caseSensitive") === "true", wholeWord: q.get("wholeWord") === "true",
+        includeIgnored: q.get("includeIgnored") === "true", folder: q.get("folder") || "",
+        extension: q.get("extension") || "", signal: abort.signal
+      });
+    } finally { res.off("close", cancel); }
+  });
   route("GET", "/api/projects/:id/raw", async ({ params, q, req, res }) => { const r = projects.resolveInside(params.id, q.get("path")); await sendFile(req, res, r.full, { extra: q.get("download") ? { "Content-Disposition": `attachment; filename="${path.basename(r.full).replace(/"/g, "")}"` } : {} }); }, { cookie: true });
   route("GET", "/api/projects/:id/thumb", async ({ params, q, req, res }) => { const r = projects.resolveInside(params.id, q.get("path")); await sendFile(req, res, await files.thumbnail(r.full, Math.min(+q.get("w") || 480, 1600)), { mime: "image/jpeg", cache: "private, max-age=3600" }); }, { cookie: true });
   route("GET", "/api/trash", () => files.trashList());

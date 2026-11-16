@@ -106,6 +106,16 @@ struct CodeEditor: UIViewRepresentable {
         var pending: DispatchWorkItem?
         var lastJump: String?
         init(_ p: CodeEditor) { parent = p }
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
+            guard replacement == "\n" else { return true }
+            let source = textView.text as NSString
+            let lineRange = source.lineRange(for: NSRange(location: range.location, length: 0))
+            let prefix = source.substring(with: NSRange(location: lineRange.location, length: range.location - lineRange.location))
+            let indent = String(prefix.prefix { $0 == " " || $0 == "\t" })
+            guard !indent.isEmpty || prefix.hasSuffix("{") else { return true }
+            textView.insertText("\n" + indent + (prefix.hasSuffix("{") ? "    " : ""))
+            return false
+        }
         func textViewDidChange(_ tv: UITextView) {
             parent.text = tv.text
             tv.setNeedsDisplay()

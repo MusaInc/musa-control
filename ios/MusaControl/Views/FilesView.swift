@@ -74,6 +74,9 @@ struct FileBrowser: View {
     @State private var caseSensitive = false
     @State private var wholeWord = false
     @State private var includeIgnored = false
+    @State private var folderFilter = ""
+    @State private var extensionFilter = ""
+    @AppStorage("manual.recentSearch") private var recentSearch = ""
     @State private var gitFiles: [String: String] = [:]
     @State private var showHidden = false
     @State private var importing = false
@@ -91,7 +94,7 @@ struct FileBrowser: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
                 TextField(searchMode == "name" ? "Find file" : "Search in files", text: $query).font(.system(size: 14)).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .onSubmit { Task { await search() } }
-                Picker("", selection: $searchMode) { Image(systemName: "doc").tag("name"); Image(systemName: "text.magnifyingglass").tag("content") }.pickerStyle(.segmented).frame(width: 74)
+                Picker("Search mode", selection: $searchMode) { Text("Files").tag("name"); Text("Contents").tag("content"); Text("Symbols").tag("symbols") }.pickerStyle(.menu)
             }
             .padding(.horizontal, 8).frame(height: 36).background(Theme.raised)
             Menu("Search options") {
@@ -99,7 +102,12 @@ struct FileBrowser: View {
                 Toggle("Case sensitive", isOn: $caseSensitive)
                 Toggle("Whole word", isOn: $wholeWord)
                 Toggle("Include ignored files", isOn: $includeIgnored)
+                Button("Reuse last search") { query = recentSearch }
             }.font(Theme.caption)
+            HStack {
+                TextField("Folder filter", text: $folderFilter)
+                TextField("Extension", text: $extensionFilter)
+            }.font(Theme.caption).textInputAutocapitalization(.never).autocorrectionDisabled().padding(6)
             if !query.isEmpty {
                 HStack {
                     Button("Copy selected (\(selectedPaths.count))") { copyFiles(selectedPaths.sorted()) }
@@ -150,7 +158,7 @@ struct FileBrowser: View {
         }
         .background(Theme.surface)
         .task(id: "\(projectId)/\(dir)") { await load() }
-        .task(id: "\(projectId)|\(query)|\(searchMode)|\(regex)|\(caseSensitive)|\(wholeWord)|\(includeIgnored)") {
+        .task(id: "\(projectId)|\(query)|\(searchMode)|\(regex)|\(caseSensitive)|\(wholeWord)|\(includeIgnored)|\(folderFilter)|\(extensionFilter)") {
             do {
                 try await Task.sleep(nanoseconds: 250_000_000)
                 await search()
@@ -279,9 +287,9 @@ struct FileBrowser: View {
     func search() async {
         guard !query.isEmpty else { return }
         do {
-            let response = try await app.client.get("/api/projects/\(projectId)/search", ["q": query, "mode": searchMode, "regex": String(regex), "caseSensitive": String(caseSensitive), "wholeWord": String(wholeWord), "includeIgnored": String(includeIgnored)], as: SearchResponse.self)
+            let response = try await app.client.get("/api/projects/\(projectId)/search", ["q": query, "mode": searchMode, "regex": String(regex), "caseSensitive": String(caseSensitive), "wholeWord": String(wholeWord), "includeIgnored": String(includeIgnored), "folder": folderFilter, "extension": extensionFilter], as: SearchResponse.self)
             guard !Task.isCancelled else { return }
-            results = response.results; error = nil
+            results = response.results; error = nil; recentSearch = query
         } catch {
             guard !Task.isCancelled else { return }
             self.error = error.localizedDescription
@@ -322,6 +330,8 @@ struct FileViewerPanel: View {
     @State private var replacing = false
     @State private var replacement = ""
     @State private var previewReplacement = false
+    @State private var jump = ""
+    @State private var showJump = false
     @Environment(\.compactLayout) private var compact
 
     var path: String? { files.openPath[projectId] }
@@ -376,6 +386,11 @@ struct FileViewerPanel: View {
             }
         }
         .onChange(of: files.restoreTick) { _, _ in Task { mode = "edit"; await load() } }
+        .alert("Jump to line", isPresented: $showJump) {
+            TextField("Line number", text: $jump).keyboardType(.numberPad)
+            Button("Go") { if let line = Int(jump), line > 0 { files.jumpLine = line; mode = "edit" } }
+            Button("Cancel", role: .cancel) {}
+        }
         .sheet(isPresented: $replacing) {
             VStack {
                 Text("Replace File").font(Theme.title)
@@ -433,6 +448,13 @@ struct FileViewerPanel: View {
             } label: { Image(systemName: "doc.on.doc") }
                 .accessibilityLabel("Copy entire file").disabled(content?.text == nil)
             Menu {
+                Button("Jump to line") { showJump = true }.keyboardShortcut("l", modifiers: .command)
+                Button("Close tab") {
+                    guard !dirty else { status = "Save your changes before closing this tab"; return }
+                    files.tabs[projectId]?.removeAll { $0 == path }
+                    if let next = files.tabs[projectId]?.last { files.open(project: projectId, path: next) }
+                    else { files.close(project: projectId) }
+                }.keyboardShortcut("w", modifiers: .command)
                 Button("Copy path") { UIPasteboard.general.string = path }
                 Button("Copy filename") { UIPasteboard.general.string = (path as NSString).lastPathComponent }
                 Button("Copy with filename") { UIPasteboard.general.string = path + "\n\n" + text }
@@ -492,6 +514,7 @@ struct FileViewerPanel: View {
             let c = try await app.client.get("/api/projects/\(projectId)/file", ["path": path], as: FileContent.self)
             guard !Task.isCancelled, self.path == path else { return }
             content = c; text = c.text ?? ""; baseSha = c.sha; status = nil
+            if !keepMode { mode = "edit" }
             if !keepMode, ["md"].contains((path as NSString).pathExtension.lowercased()) { mode = "view" }
         } catch { status = error.localizedDescription; content = nil }
         await loadRevisions()
