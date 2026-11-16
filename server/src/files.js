@@ -63,7 +63,17 @@ export function createFiles(cfg, projects, events, db) {
   // baseSha: the SHA the client loaded. If the file changed since (an agent
   // wrote it), the write is refused with the current content so the client
   // can show a merge view instead of clobbering the agent's work.
-  async function write(id, rel, text, baseSha, { force = false } = {}) {
+  const writes = new Map();
+  async function write(id, rel, text, baseSha, options = {}) {
+    const key = projects.resolveInside(id, rel, { mustExist: false }).full;
+    const previous = writes.get(key) || Promise.resolve();
+    const pending = previous.catch(() => {}).then(() => writeUnlocked(id, rel, text, baseSha, options));
+    writes.set(key, pending);
+    try { return await pending; }
+    finally { if (writes.get(key) === pending) writes.delete(key); }
+  }
+
+  async function writeUnlocked(id, rel, text, baseSha, { force = false } = {}) {
     const { full, rel: r, project } = projects.resolveInside(id, rel, { mustExist: false });
     let current = null;
     try { current = await fsp.readFile(full); } catch (e) { if (e.code !== "ENOENT") throw e; }

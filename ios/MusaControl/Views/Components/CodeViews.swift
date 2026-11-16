@@ -49,6 +49,7 @@ struct CodeEditor: UIViewRepresentable {
     let path: String
     var fontSize: CGFloat = 13
     var jumpLine: Int? = nil
+    var wordWrap = true
     var onSave: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -73,6 +74,8 @@ struct CodeEditor: UIViewRepresentable {
             UIBarButtonItem(title: "Redo", style: .plain, target: v, action: #selector(EditorTextView.redoEdit)),
             UIBarButtonItem(title: "Find", style: .plain, target: v, action: #selector(EditorTextView.findText)),
             UIBarButtonItem(title: "Copy All", style: .plain, target: v, action: #selector(EditorTextView.copyAll)),
+            UIBarButtonItem(title: "Copy Lines", style: .plain, target: v, action: #selector(EditorTextView.copyLines)),
+            UIBarButtonItem(title: "Line Ref", style: .plain, target: v, action: #selector(EditorTextView.copyReference)),
             UIBarButtonItem(title: "Save", style: .done, target: v, action: #selector(EditorTextView.save))
         ]
         bar.sizeToFit(); v.inputAccessoryView = bar
@@ -86,6 +89,11 @@ struct CodeEditor: UIViewRepresentable {
 
     func updateUIView(_ v: EditorTextView, context: Context) {
         context.coordinator.parent = self
+        v.sourcePath = path
+        if v.textContainer.widthTracksTextView != wordWrap {
+            v.textContainer.widthTracksTextView = wordWrap
+            v.textContainer.size = CGSize(width: wordWrap ? max(1, v.bounds.width - 62) : 100000, height: CGFloat.greatestFiniteMagnitude)
+        }
         v.onSave = onSave
         if v.text != text {
             let sel = v.selectedRange
@@ -140,6 +148,7 @@ struct CodeEditor: UIViewRepresentable {
 }
 
 final class EditorTextView: UITextView {
+    var sourcePath = ""
     var onSave: () -> Void = {}
     override var keyCommands: [UIKeyCommand]? {
         (super.keyCommands ?? []) + [UIKeyCommand(title: "Save", action: #selector(save), input: "s", modifierFlags: .command)]
@@ -149,6 +158,17 @@ final class EditorTextView: UITextView {
     @objc func redoEdit() { undoManager?.redo() }
     @objc func findText() { findInteraction?.presentFindNavigator(showingReplace: false) }
     @objc func copyAll() { UIPasteboard.general.string = text }
+    @objc func copyLines() {
+        let source = text as NSString
+        UIPasteboard.general.string = source.substring(with: source.lineRange(for: selectedRange))
+    }
+    @objc func copyReference() {
+        let source = text as NSString
+        let range = source.lineRange(for: selectedRange)
+        let first = source.substring(to: range.location).filter { $0 == "\n" }.count + 1
+        let count = source.substring(with: range).split(separator: "\n", omittingEmptySubsequences: false).count
+        UIPasteboard.general.string = "\(sourcePath):\(first)-\(first + max(0, count - 2))"
+    }
 
     override func draw(_ rect: CGRect) {
         super.draw(rect)

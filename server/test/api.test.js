@@ -367,3 +367,19 @@ test("large manual replacement preserves exact bytes and executable permissions"
   assert.equal(fs.readFileSync(target, "utf8"), text);
   fs.unlinkSync(target);
 });
+
+test("concurrent manual saves serialize and retain recoverable previous contents", async () => {
+  const target = path.join(proj, "src", "concurrent.txt");
+  fs.writeFileSync(target, "original\n");
+  const initial = (await api("GET", "/api/projects/demo/file?path=src/concurrent.txt")).body;
+  const saves = await Promise.all(["first\n", "second\n"].map(text =>
+    api("PUT", "/api/projects/demo/file", { path: "src/concurrent.txt", text, baseSha: initial.sha })));
+  assert.deepEqual(saves.map(s => s.status).sort(), [200, 409]);
+  const revisions = (await api("GET", "/api/projects/demo/revisions?path=src/concurrent.txt")).body;
+  const previous = await api("GET", "/api/revisions/" + revisions.find(r => r.sha === initial.sha).id);
+  assert.equal(previous.body.text, "original\n");
+  const current = (await api("GET", "/api/projects/demo/file?path=src/concurrent.txt")).body;
+  assert.equal((await api("PUT", "/api/projects/demo/file", { path: "src/concurrent.txt", text: previous.body.text, baseSha: current.sha })).status, 200);
+  assert.equal(fs.readFileSync(target, "utf8"), "original\n");
+  fs.unlinkSync(target);
+});

@@ -227,6 +227,16 @@ struct WorkspaceView: View {
                 if !compact { Text(p.path.replacingOccurrences(of: #"^/(home|Users)/[^/]+"#, with: "~", options: .regularExpression)).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1) }
             }
             Spacer()
+            Button {
+                layout = WorkspaceLayout(columns: [
+                    LayoutColumn(width: 0.23, panels: [PanelSlot(kind: .files)], heights: [1]),
+                    LayoutColumn(width: 0.77, panels: [PanelSlot(kind: .editor)], heights: [1])
+                ], maximized: nil)
+            } label: { Label("Code", systemImage: "chevron.left.forwardslash.chevron.right").font(Theme.label) }
+            Button {
+                if !layout.columns.contains(where: { $0.panels.contains(where: { $0.kind == .files }) }) { add(.files) }
+                layout.maximized = nil
+            } label: { Image(systemName: "sidebar.left") }.accessibilityLabel("Restore project navigator")
             Button { app.launcherProject = projectId; app.showLauncher = true } label: { Label("Agent", systemImage: "plus").font(Theme.label) }
             Menu {
                 ForEach(PanelKind.allCases) { k in Button { add(k) } label: { Label(k.title, systemImage: k.icon) } }
