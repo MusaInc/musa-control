@@ -48,6 +48,7 @@ struct CodeEditor: UIViewRepresentable {
     @Binding var text: String
     let path: String
     var fontSize: CGFloat = 13
+    var jumpLine: Int? = nil
     var onSave: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -65,7 +66,16 @@ struct CodeEditor: UIViewRepresentable {
         v.keyboardDismissMode = .interactive
         v.isFindInteractionEnabled = true
         v.alwaysBounceVertical = true
-        v.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 40, right: 8)
+        v.textContainerInset = UIEdgeInsets(top: 10, left: 54, bottom: 40, right: 8)
+        let bar = UIToolbar()
+        bar.items = [
+            UIBarButtonItem(title: "Undo", style: .plain, target: v, action: #selector(EditorTextView.undoEdit)),
+            UIBarButtonItem(title: "Redo", style: .plain, target: v, action: #selector(EditorTextView.redoEdit)),
+            UIBarButtonItem(title: "Find", style: .plain, target: v, action: #selector(EditorTextView.findText)),
+            UIBarButtonItem(title: "Copy All", style: .plain, target: v, action: #selector(EditorTextView.copyAll)),
+            UIBarButtonItem(title: "Save", style: .done, target: v, action: #selector(EditorTextView.save))
+        ]
+        bar.sizeToFit(); v.inputAccessoryView = bar
         v.delegate = context.coordinator
         v.tintColor = UIColor(Theme.accent)
         v.attributedText = SyntaxHighlighter.highlight(text, path: path, font: font)
@@ -75,20 +85,30 @@ struct CodeEditor: UIViewRepresentable {
     var font: UIFont { UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular) }
 
     func updateUIView(_ v: EditorTextView, context: Context) {
+        context.coordinator.parent = self
         v.onSave = onSave
         if v.text != text {
             let sel = v.selectedRange
             v.attributedText = SyntaxHighlighter.highlight(text, path: path, font: font)
             v.selectedRange = NSRange(location: min(sel.location, (text as NSString).length), length: 0)
         }
+        if let line = jumpLine, context.coordinator.lastJump != "\(path):\(line)" {
+            context.coordinator.lastJump = "\(path):\(line)"
+            let lines = text.components(separatedBy: "\n")
+            let offset = lines.prefix(max(0, min(line - 1, lines.count - 1))).reduce(0) { $0 + ($1 as NSString).length + 1 }
+            v.selectedRange = NSRange(location: min(offset, (text as NSString).length), length: 0)
+            v.scrollRangeToVisible(v.selectedRange)
+        }
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: CodeEditor
         var pending: DispatchWorkItem?
+        var lastJump: String?
         init(_ p: CodeEditor) { parent = p }
         func textViewDidChange(_ tv: UITextView) {
             parent.text = tv.text
+            tv.setNeedsDisplay()
             pending?.cancel()
             let work = DispatchWorkItem { [weak tv, parent] in
                 guard let tv else { return }
@@ -112,9 +132,32 @@ struct CodeEditor: UIViewRepresentable {
 final class EditorTextView: UITextView {
     var onSave: () -> Void = {}
     override var keyCommands: [UIKeyCommand]? {
-        [UIKeyCommand(title: "Save", action: #selector(save), input: "s", modifierFlags: .command)]
+        (super.keyCommands ?? []) + [UIKeyCommand(title: "Save", action: #selector(save), input: "s", modifierFlags: .command)]
     }
     @objc func save() { onSave() }
+    @objc func undoEdit() { undoManager?.undo() }
+    @objc func redoEdit() { undoManager?.redo() }
+    @objc func findText() { findInteraction?.presentFindNavigator(showingReplace: false) }
+    @objc func copyAll() { UIPasteboard.general.string = text }
+
+    override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        guard let font else { return }
+        let source = text as NSString
+        let visible = CGRect(origin: contentOffset, size: bounds.size)
+        let glyphs = layoutManager.glyphRange(forBoundingRect: visible, in: textContainer)
+        let chars = layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        var start = source.lineRange(for: NSRange(location: min(chars.location, source.length), length: 0)).location
+        var number = source.substring(to: start).filter { $0 == "\n" }.count + 1
+        while start < source.length && start <= NSMaxRange(chars) {
+            let glyph = layoutManager.glyphIndexForCharacter(at: start)
+            let line = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            ("\(number)" as NSString).draw(at: CGPoint(x: 6, y: line.minY + textContainerInset.top),
+                withAttributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+            start = NSMaxRange(source.lineRange(for: NSRange(location: start, length: 0)))
+            number += 1
+        }
+    }
 }
 
 /// Pinch-zoom and pan for screenshots (UIScrollView: crisp, native feel).

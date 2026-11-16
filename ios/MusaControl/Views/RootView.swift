@@ -8,6 +8,7 @@ import SwiftUI
 /// closes on a tap outside or after navigating.
 struct RootView: View {
     @Environment(AppModel.self) private var app
+    @State private var manualSearch = false
 
     var body: some View {
         @Bindable var app = app
@@ -40,6 +41,33 @@ struct RootView: View {
                         withAnimation(.snappy(duration: 0.22)) { if compact { app.sidebarOverlay = true } else { app.sidebarExpanded = true } }
                     })
                     .onChange(of: compact) { _, _ in app.sidebarOverlay = false }
+                }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if app.phase != .unpaired {
+                HStack {
+                    Button { manualSearch = true } label: { Label("Search project", systemImage: "magnifyingglass") }
+                        .keyboardShortcut("f", modifiers: [.command, .shift])
+                    Button("Quick Open") { manualSearch = true }.keyboardShortcut("p", modifiers: .command)
+                    Spacer()
+                }.font(Theme.caption).padding(6).background(Theme.raised)
+            }
+        }
+        .sheet(isPresented: $manualSearch) {
+            VStack {
+                HStack {
+                    Text("Search project").font(Theme.title)
+                    Spacer()
+                    Button("Done") { manualSearch = false }
+                }.padding()
+                if let project = app.workspaceProject ?? app.filesProject ?? app.projects.first?.id {
+                    FileBrowser(projectId: project)
+                    Button("Open in editor") {
+                        app.filesProject = project
+                        app.section = .files
+                        manualSearch = false
+                    }.padding()
                 }
             }
         }

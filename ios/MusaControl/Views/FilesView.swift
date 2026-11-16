@@ -11,9 +11,14 @@ final class FilesState {
     static let shared = FilesState()
     var openPath: [String: String] = (UserDefaults.standard.dictionary(forKey: "files.open") as? [String: String]) ?? [:]
     var browsePath: [String: String] = [:]
+    var tabs: [String: [String]] = [:]
+    var drafts: [String: String] = [:]
+    var originals: [String: FileContent] = [:]
+    var restoreTick = 0
     var jumpLine: Int?
     var unsaved: Set<String> = []          // projects whose open file has unsaved edits
     func open(project: String, path: String, line: Int? = nil) {
+        if !(tabs[project] ?? []).contains(path) { tabs[project, default: []].append(path) }
         openPath[project] = path
         browsePath[project] = (path as NSString).deletingLastPathComponent
         jumpLine = line
@@ -62,7 +67,13 @@ struct FileBrowser: View {
     @State private var listing: DirListing?
     @State private var query = ""
     @State private var results: [SearchResult] = []
+    @State private var selectedPaths: Set<String> = []
+    @State private var copyStatus: String?
     @State private var searchMode = "name"
+    @State private var regex = false
+    @State private var caseSensitive = false
+    @State private var wholeWord = false
+    @State private var includeIgnored = false
     @State private var gitFiles: [String: String] = [:]
     @State private var showHidden = false
     @State private var importing = false
@@ -83,17 +94,50 @@ struct FileBrowser: View {
                 Picker("", selection: $searchMode) { Image(systemName: "doc").tag("name"); Image(systemName: "text.magnifyingglass").tag("content") }.pickerStyle(.segmented).frame(width: 74)
             }
             .padding(.horizontal, 8).frame(height: 36).background(Theme.raised)
+            Menu("Search options") {
+                Toggle("Regular expression", isOn: $regex)
+                Toggle("Case sensitive", isOn: $caseSensitive)
+                Toggle("Whole word", isOn: $wholeWord)
+                Toggle("Include ignored files", isOn: $includeIgnored)
+            }.font(Theme.caption)
             if !query.isEmpty {
-                List(results, id: \.self) { r in
-                    Button { files.open(project: projectId, path: r.path, line: r.line) } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(r.path).font(Theme.monoSmall).lineLimit(1).truncationMode(.head)
-                            if let t = r.text { Text("\(r.line ?? 0): \(t.trimmingCharacters(in: .whitespaces))").font(Theme.monoSmall).foregroundStyle(Theme.textDim).lineLimit(1) }
+                HStack {
+                    Button("Copy selected (\(selectedPaths.count))") { copyFiles(selectedPaths.sorted()) }
+                        .disabled(selectedPaths.isEmpty)
+                    Spacer()
+                    if let copyStatus { Text(copyStatus).font(Theme.caption) }
+                }.padding(8)
+                List {
+                    ForEach(Array(Set(results.map(\.path))).sorted(), id: \.self) { path in
+                        Section {
+                            ForEach(results.filter { $0.path == path }, id: \.self) { r in
+                                Button { files.open(project: projectId, path: r.path, line: r.line) } label: {
+                                    Text(highlight("\(r.line ?? 0): \(r.text ?? r.path)"))
+                                        .font(Theme.monoSmall).lineLimit(3)
+                                }.buttonStyle(.plain)
+                            }
+                        } header: {
+                            HStack {
+                                Button {
+                                    if selectedPaths.contains(path) { selectedPaths.remove(path) }
+                                    else { selectedPaths.insert(path) }
+                                } label: { Image(systemName: selectedPaths.contains(path) ? "checkmark.circle.fill" : "circle") }
+                                Text("\(path) (\(results.filter { $0.path == path }.count))").textCase(nil)
+                                Spacer()
+                                Menu {
+                                    Button("Open") { files.open(project: projectId, path: path) }
+                                    Button("Copy entire file") { copyFiles([path]) }
+                                    Button("Copy path") { UIPasteboard.general.string = path }
+                                    Button("Copy matching lines") {
+                                        UIPasteboard.general.string = results.filter { $0.path == path }.map { "\($0.path):\($0.line ?? 0): \($0.text ?? "")" }.joined(separator: "\n")
+                                    }
+                                } label: { Image(systemName: "ellipsis.circle") }
+                            }
                         }
-                    }.buttonStyle(.plain).listRowBackground(Theme.surface)
+                    }
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden)
-                .overlay { if results.isEmpty { Text("Press return to search").font(Theme.caption).foregroundStyle(Theme.textFaint) } }
+                .overlay { if results.isEmpty { Text("No results").font(Theme.caption).foregroundStyle(Theme.textFaint) } }
             } else {
                 breadcrumb
                 List {
@@ -106,6 +150,12 @@ struct FileBrowser: View {
         }
         .background(Theme.surface)
         .task(id: "\(projectId)/\(dir)") { await load() }
+        .task(id: "\(projectId)|\(query)|\(searchMode)|\(regex)|\(caseSensitive)|\(wholeWord)|\(includeIgnored)") {
+            do {
+                try await Task.sleep(nanoseconds: 250_000_000)
+                await search()
+            } catch {}
+        }
         .onChange(of: app.eventTick) { _, _ in
             guard let e = app.liveEvents.last, e.project == projectId, e.kind == "file.changed" || e.kind == "agent.edit" else { return }
             if let p = e.detail?["path"]?.string { recent.insert(app.locate(p)?.rel ?? p) }
@@ -176,6 +226,31 @@ struct FileBrowser: View {
         }
     }
 
+    func highlight(_ value: String) -> AttributedString {
+        var result = AttributedString(value)
+        if !query.isEmpty, let range = result.range(of: query, options: caseSensitive ? [] : [.caseInsensitive]) {
+            result[range].backgroundColor = Theme.yellow.opacity(0.3)
+        }
+        return result
+    }
+
+    func copyFiles(_ paths: [String]) {
+        Task {
+            do {
+                var chunks: [String] = []
+                for path in paths {
+                    let file = try await app.client.get("/api/projects/\(projectId)/file", ["path": path], as: FileContent.self)
+                    guard let text = file.text, file.tooLarge != true, !file.binary else {
+                        copyStatus = "Cannot copy complete text: \(path)"; return
+                    }
+                    chunks.append(paths.count == 1 ? text : "===== \(path) =====\n" + text + "\n===== End \(path) =====")
+                }
+                UIPasteboard.general.string = chunks.joined(separator: "\n\n")
+                copyStatus = "Copied \(paths.count) file(s)"
+            } catch { copyStatus = error.localizedDescription }
+        }
+    }
+
     func icon(_ name: String) -> String {
         switch (name as NSString).pathExtension.lowercased() {
         case "png", "jpg", "jpeg", "gif", "webp", "svg": return "photo"
@@ -203,7 +278,14 @@ struct FileBrowser: View {
     }
     func search() async {
         guard !query.isEmpty else { return }
-        results = (try? await app.client.get("/api/projects/\(projectId)/search", ["q": query, "mode": searchMode], as: SearchResponse.self).results) ?? []
+        do {
+            let response = try await app.client.get("/api/projects/\(projectId)/search", ["q": query, "mode": searchMode, "regex": String(regex), "caseSensitive": String(caseSensitive), "wholeWord": String(wholeWord), "includeIgnored": String(includeIgnored)], as: SearchResponse.self)
+            guard !Task.isCancelled else { return }
+            results = response.results; error = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            self.error = error.localizedDescription
+        }
     }
     func op(_ f: @escaping () async throws -> Void) { Task { do { try await f(); error = nil } catch { self.error = error.localizedDescription }; await load() } }
 
@@ -237,6 +319,9 @@ struct FileViewerPanel: View {
     @State private var status: String?
     @State private var changedOnServer = false
     @State private var follow = true
+    @State private var replacing = false
+    @State private var replacement = ""
+    @State private var previewReplacement = false
     @Environment(\.compactLayout) private var compact
 
     var path: String? { files.openPath[projectId] }
@@ -245,6 +330,15 @@ struct FileViewerPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             if let path {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        ForEach(files.tabs[projectId] ?? [path], id: \.self) { tab in
+                            Button((tab as NSString).lastPathComponent + (files.drafts[projectId + "/" + tab] != nil ? " •" : "")) {
+                                files.open(project: projectId, path: tab)
+                            }.buttonStyle(.bordered).tint(tab == path ? Theme.accent : Theme.textDim)
+                        }
+                    }.padding(4)
+                }
                 header(path)
                     .onChange(of: dirty) { _, d in if d { files.unsaved.insert(projectId) } else { files.unsaved.remove(projectId) } }
                 if changedOnServer {
@@ -264,6 +358,12 @@ struct FileViewerPanel: View {
             }
         }
         .background(Theme.surface)
+        .onChange(of: text) { _, value in
+            guard let content, let path, content.path == path else { return }
+            let key = projectId + "/" + path
+            files.originals[key] = content
+            files.drafts[key] = value == content.text ? nil : value
+        }
         .task(id: "\(projectId)/\(path ?? "")") { await load() }
         .onChange(of: app.eventTick) { _, _ in
             guard let e = app.liveEvents.last, e.project == projectId, let p = path,
@@ -274,6 +374,30 @@ struct FileViewerPanel: View {
                 if e.kind == "file.saved" && e.detail?["sha"]?.string == baseSha { return }
                 if !dirty && follow { await load(keepMode: true) } else { changedOnServer = true }
             }
+        }
+        .onChange(of: files.restoreTick) { _, _ in Task { mode = "edit"; await load() } }
+        .sheet(isPresented: $replacing) {
+            VStack {
+                Text("Replace File").font(Theme.title)
+                Button("Paste replacement") {
+                    if let pasted = UIPasteboard.general.string { replacement = pasted }
+                }
+                if previewReplacement {
+                    DiffView(diff: ConflictSheet(mine: replacement, theirs: text, path: path ?? "", resolve: { _ in }).diff)
+                } else {
+                    TextEditor(text: $replacement).font(Theme.monoSmall)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+                HStack {
+                    Button("Cancel") { replacing = false }
+                    Button(previewReplacement ? "Edit" : "Preview changes") { previewReplacement.toggle() }
+                    Spacer()
+                    Button(previewReplacement ? "Save" : "Quick Save") {
+                        text = replacement; replacing = false
+                        Task { await save(force: false) }
+                    }
+                }
+            }.padding()
         }
         .sheet(item: $conflict) { box in
             ConflictSheet(mine: text, theirs: box.result.currentText ?? "", path: path ?? "") { choice in
@@ -304,6 +428,20 @@ struct FileViewerPanel: View {
                 Picker("", selection: $mode) { ForEach(Self.modes, id: \.self) { m in Text(Self.modeTitle(m)).tag(m) } }.pickerStyle(.segmented).frame(width: 300)
                 Toggle(isOn: $follow) { Image(systemName: "dot.radiowaves.left.and.right") }.toggleStyle(.button).help("Reload automatically when an agent changes this file")
             }
+            Button {
+                UIPasteboard.general.string = text; status = "Copied entire file"
+            } label: { Image(systemName: "doc.on.doc") }
+                .accessibilityLabel("Copy entire file").disabled(content?.text == nil)
+            Menu {
+                Button("Copy path") { UIPasteboard.general.string = path }
+                Button("Copy filename") { UIPasteboard.general.string = (path as NSString).lastPathComponent }
+                Button("Copy with filename") { UIPasteboard.general.string = path + "\n\n" + text }
+                Button("Reveal in folder") { files.browsePath[projectId] = (path as NSString).deletingLastPathComponent }
+            } label: { Image(systemName: "ellipsis.circle") }
+            Button {
+                replacement = text; previewReplacement = false; replacing = true
+            } label: { Image(systemName: "arrow.triangle.2.circlepath.doc.on.clipboard") }
+                .accessibilityLabel("Replace file").disabled(content?.text == nil)
             Button { Task { await save(force: false) } } label: { Text("Save").font(Theme.label).padding(.horizontal, 10).frame(height: 28).background(dirty ? Theme.accent : Theme.hover, in: RoundedRectangle(cornerRadius: 6)).foregroundStyle(dirty ? .black : Theme.textDim) }
                 .buttonStyle(.plain).disabled(!dirty).keyboardShortcut("s", modifiers: .command)
         }
@@ -338,16 +476,21 @@ struct FileViewerPanel: View {
             case "history":
                 RevisionHistory(projectId: projectId, path: path, revisions: revisions)
             default:
-                CodeEditor(text: $text, path: path, fontSize: 13) { Task { await save(force: false) } }
+                CodeEditor(text: $text, path: path, fontSize: 13, jumpLine: files.jumpLine) { Task { await save(force: false) } }
             }
         }
     }
 
     func load(keepMode: Bool = false) async {
         guard let path else { return }
+        let key = projectId + "/" + path
+        if let draft = files.drafts[key], let original = files.originals[key] {
+            content = original; text = draft; baseSha = original.sha; return
+        }
         changedOnServer = false
         do {
             let c = try await app.client.get("/api/projects/\(projectId)/file", ["path": path], as: FileContent.self)
+            guard !Task.isCancelled, self.path == path else { return }
             content = c; text = c.text ?? ""; baseSha = c.sha; status = nil
             if !keepMode, ["md"].contains((path as NSString).pathExtension.lowercased()) { mode = "view" }
         } catch { status = error.localizedDescription; content = nil }
@@ -357,12 +500,15 @@ struct FileViewerPanel: View {
     func loadDiff() async { diff = (try? await app.client.get("/api/projects/\(projectId)/git/diff", ["file": path], as: DiffResponse.self).diff) ?? "" }
 
     func save(force: Bool) async {
-        guard let path else { return }
+        guard let path, content?.path == path, baseSha != nil else { return }
+        let savedText = text
         do {
-            var body: [String: Any] = ["path": path, "text": text, "force": force]
+            var body: [String: Any] = ["path": path, "text": savedText, "force": force]
             if let baseSha { body["baseSha"] = baseSha }
             let r = try await app.client.send("PUT", "/api/projects/\(projectId)/file", body, as: SaveResult.self)
-            baseSha = r.sha; content = FileContent(path: path, size: Double(text.utf8.count), mtime: Date().timeIntervalSince1970 * 1000, mime: content?.mime ?? "text/plain", text: text, binary: false, sha: r.sha, tooLarge: false)
+            guard self.path == path else { return }
+            baseSha = r.sha; content = FileContent(path: path, size: Double(savedText.utf8.count), mtime: Date().timeIntervalSince1970 * 1000, mime: content?.mime ?? "text/plain", text: savedText, binary: false, sha: r.sha, tooLarge: false)
+            files.drafts[projectId + "/" + path] = text == savedText ? nil : text
             changedOnServer = false; status = "Saved"
         } catch let e as GatewayError where e.isConflict {
             conflict = e.decode(SaveResult.self).map { ConflictBox(result: $0) }
@@ -374,6 +520,8 @@ struct FileViewerPanel: View {
         return String(data: p, encoding: .utf8) ?? s
     }
 }
+
+struct RevisionText: Decodable { let text: String; let path: String }
 
 struct ConflictBox: Identifiable { let id = UUID(); let result: SaveResult }
 
@@ -451,6 +599,21 @@ struct RevisionHistory: View {
                     Button { play() } label: { Label(playing ? "Playing…" : "Replay edits", systemImage: "play.fill") }.font(Theme.label).disabled(revisions.count < 2 || playing)
                     if !compact { Text("Steps through the real saved revisions, oldest first.").font(Theme.caption).foregroundStyle(Theme.textFaint) }
                     Spacer()
+                    if let selected {
+                        Button("Restore to editor") {
+                            Task {
+                                if let revision = try? await app.client.get("/api/revisions/\(selected)", as: RevisionText.self),
+                                   let current = try? await app.client.get("/api/projects/\(projectId)/file", ["path": path], as: FileContent.self) {
+                                    let state = FilesState.shared
+                                    let key = projectId + "/" + path
+                                    state.originals[key] = current
+                                    state.drafts[key] = revision.text
+                                    state.open(project: projectId, path: path)
+                                    state.restoreTick += 1
+                                }
+                            }
+                        }
+                    }
                 }.padding(.horizontal, 10).frame(height: 30).background(Theme.raised)
                 DiffView(diff: diff ?? "", emptyText: selected == nil ? "Choose a revision" : "First snapshot (nothing earlier to compare)")
             }

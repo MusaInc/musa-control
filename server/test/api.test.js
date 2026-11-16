@@ -339,3 +339,31 @@ test("default launch still asks; unattended is an explicit saved client choice",
   assert.match(r.body.output, /ARG:workspace-write/);
   assert.ok(!r.body.output.includes("--dangerously-bypass"));
 });
+
+test("manual search treats literals safely and supports regex, case and whole word", async () => {
+  fs.writeFileSync(path.join(proj, "src", "manual.txt"), "needle.x\nNEEDLE.x\nneedleXx\nneedles\n");
+  const search = async (q, options = "") => api("GET", "/api/projects/demo/search?mode=content&q=" + encodeURIComponent(q) + options);
+  const literal = await search("needle.x");
+  assert.equal(literal.status, 200);
+  assert.equal(literal.body.results.filter(r => r.path === "src/manual.txt").length, 2);
+  assert.equal((await search("needle.x", "&caseSensitive=true")).body.results.length, 1);
+  assert.equal((await search("needle.x", "&regex=true")).body.results.length, 3);
+  assert.equal((await search("needles", "&wholeWord=true")).body.results.length, 1);
+  assert.equal((await search("[", "&regex=true")).status, 422);
+  fs.unlinkSync(path.join(proj, "src", "manual.txt"));
+});
+
+test("large manual replacement preserves exact bytes and executable permissions", async () => {
+  const target = path.join(proj, "src", "manual.sh");
+  fs.writeFileSync(target, "#!/bin/sh\necho old\n", { mode: 0o755 });
+  const loaded = (await api("GET", "/api/projects/demo/file?path=src/manual.sh")).body;
+  const text = "#!/bin/sh\r\n" + "  # Unicode λ \t \r\n".repeat(30000);
+  const saved = await api("PUT", "/api/projects/demo/file", { path: "src/manual.sh", text, baseSha: loaded.sha });
+  assert.equal(saved.status, 200);
+  assert.equal(fs.readFileSync(target, "utf8"), text);
+  assert.equal(fs.statSync(target).mode & 0o777, 0o755);
+  const conflict = await api("PUT", "/api/projects/demo/file", { path: "src/manual.sh", text: "stale", baseSha: loaded.sha });
+  assert.equal(conflict.status, 409);
+  assert.equal(fs.readFileSync(target, "utf8"), text);
+  fs.unlinkSync(target);
+});

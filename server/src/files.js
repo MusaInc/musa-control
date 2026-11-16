@@ -5,6 +5,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import zlib from "node:zlib";
 import { run } from "./exec.js";
 
 export const sha1 = (buf) => crypto.createHash("sha1").update(buf).digest("hex");
@@ -28,7 +29,7 @@ export function looksText(buf, name) {
   return odd < sample.length * 0.02;
 }
 
-export function createFiles(cfg, projects, events) {
+export function createFiles(cfg, projects, events, db) {
   const trash = path.join(cfg.dataDir, "trash");
   fs.mkdirSync(trash, { recursive: true });
   const ignored = new Set(cfg.ignoreDirs);
@@ -65,11 +66,16 @@ export function createFiles(cfg, projects, events) {
   async function write(id, rel, text, baseSha, { force = false } = {}) {
     const { full, rel: r, project } = projects.resolveInside(id, rel, { mustExist: false });
     let current = null;
-    try { current = await fsp.readFile(full); } catch {}
+    try { current = await fsp.readFile(full); } catch (e) { if (e.code !== "ENOENT") throw e; }
     if (current && !force && baseSha !== sha1(current)) {
       return { status: 409, body: { error: "The file changed on the server since you opened it.", currentSha: sha1(current), currentText: looksText(current, r) ? current.toString("utf8") : null } };
     }
     if (!current && baseSha && !force) return { status: 409, body: { error: "The file was deleted on the server.", currentSha: null } };
+    if (current && db) {
+      const latest = db.raw.prepare("SELECT sha FROM revisions WHERE project=? AND path=? ORDER BY id DESC LIMIT 1").get(project.id, r);
+      if (latest?.sha !== sha1(current)) db.raw.prepare("INSERT INTO revisions(project,path,ts,sha,size,content,source) VALUES(?,?,?,?,?,?,?)")
+        .run(project.id, r, Date.now(), sha1(current), current.length, zlib.gzipSync(current), "disk");
+    }
     await fsp.mkdir(path.dirname(full), { recursive: true });
     const tmp = full + `.mc-${process.pid}-${Date.now()}.tmp`;
     await fsp.writeFile(tmp, text);
@@ -142,9 +148,9 @@ export function createFiles(cfg, projects, events) {
     return meta;
   }
 
-  async function search(id, query, { mode = "content", limit = 200 } = {}) {
+  async function search(id, query, { mode = "content", limit = 200, regex = false, caseSensitive = false, wholeWord = false, includeIgnored = false } = {}) {
     const { project } = projects.resolveInside(id, "");
-    const globs = [];
+    const globs = includeIgnored ? ["--no-ignore"] : [];
     for (const d of cfg.ignoreDirs) globs.push("-g", `!${d}/`);
     if (mode === "name") {
       const r = await run("rg", ["--files", "--hidden", "-g", "!.git/", ...globs], { cwd: project.path, timeout: 15_000 });
@@ -152,8 +158,9 @@ export function createFiles(cfg, projects, events) {
       const files = r.stdout.split("\n").filter((f) => f && f.toLowerCase().includes(q) && !projects.isSecret(f)).slice(0, limit);
       return { mode, results: files.map((f) => ({ path: f })) };
     }
-    const r = await run("rg", ["--json", "-S", "--max-count", "20", "--max-filesize", "2M", "--hidden", "-g", "!.git/", ...globs, "--", String(query), "."],
+    const r = await run("rg", ["--json", ...(regex ? [] : ["--fixed-strings"]), caseSensitive ? "--case-sensitive" : "--ignore-case", ...(wholeWord ? ["--word-regexp"] : []), "--max-count", "20", "--max-filesize", "2M", "--hidden", "-g", "!.git/", ...globs, "--", String(query), "."],
       { cwd: project.path, timeout: 20_000 });
+    if (r.code > 1) throw Object.assign(new Error("Search failed. Check the expression and remote ripgrep installation."), { status: 422 });
     const results = [];
     for (const line of r.stdout.split("\n")) {
       if (!line.startsWith("{")) continue;
