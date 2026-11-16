@@ -11,6 +11,7 @@ final class FilesState {
     static let shared = FilesState()
     var openPath: [String: String] = (UserDefaults.standard.dictionary(forKey: "files.open") as? [String: String]) ?? [:]
     var browsePath: [String: String] = [:]
+    var matches: [String: [SearchResult]] = [:]
     var tabs: [String: [String]] = [:]
     var drafts: [String: String] = [:]
     var originals: [String: FileContent] = [:]
@@ -63,6 +64,7 @@ struct FilesSectionView: View {
 
 struct FileBrowser: View {
     let projectId: String
+    var onOpen: () -> Void = {}
     @Environment(AppModel.self) private var app
     @State private var files = FilesState.shared
     @State private var listing: DirListing?
@@ -139,7 +141,7 @@ struct FileBrowser: View {
                     ForEach(Array(Set(results.map(\.path))).sorted(), id: \.self) { path in
                         Section {
                             ForEach(results.filter { $0.path == path }, id: \.self) { r in
-                                Button { files.open(project: projectId, path: r.path, line: r.line) } label: {
+                                Button { files.open(project: projectId, path: r.path, line: r.line); onOpen() } label: {
                                     Text(highlight("\(r.line ?? 0): \(r.text ?? r.path)"))
                                         .font(Theme.monoSmall).lineLimit(3)
                                 }.buttonStyle(.plain)
@@ -153,11 +155,11 @@ struct FileBrowser: View {
                                 Text("\(path) (\(results.filter { $0.path == path }.count))").textCase(nil)
                                 Spacer()
                                 Menu {
-                                    Button("Open") { files.open(project: projectId, path: path) }
+                                    Button("Open") { files.open(project: projectId, path: path); onOpen() }
                                     Button("Replace file") {
                                         files.replacePath[projectId] = path
                                         files.open(project: projectId, path: path)
-                                        files.restoreTick += 1
+                                        files.restoreTick += 1; onOpen()
                                     }
                                     Button("Copy entire file") { copyFiles([path]) }
                                     Button("Copy path") { UIPasteboard.general.string = path }
@@ -270,7 +272,7 @@ struct FileBrowser: View {
                         catch { self.error = error.localizedDescription }
                     }
                 }
-            } else { files.open(project: projectId, path: e.path) }
+            } else { files.open(project: projectId, path: e.path); onOpen() }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: e.dir ? "folder.fill" : icon(e.name)).font(.system(size: 13)).foregroundStyle(e.dir ? Theme.accent.opacity(0.8) : Theme.textDim).frame(width: 18)
@@ -306,8 +308,17 @@ struct FileBrowser: View {
 
     func highlight(_ value: String) -> AttributedString {
         var result = AttributedString(value)
-        if !query.isEmpty, let range = result.range(of: query, options: caseSensitive ? [] : [.caseInsensitive]) {
-            result[range].backgroundColor = Theme.yellow.opacity(0.3)
+        if !query.isEmpty {
+            var options: String.CompareOptions = caseSensitive ? [] : [.caseInsensitive]
+            if regex { options.insert(.regularExpression) }
+            var remaining = value.startIndex..<value.endIndex
+            while let range = value.range(of: query, options: options, range: remaining), !range.isEmpty {
+                if let lower = AttributedString.Index(range.lowerBound, within: result),
+                   let upper = AttributedString.Index(range.upperBound, within: result) {
+                    result[lower..<upper].backgroundColor = Theme.yellow.opacity(0.3)
+                }
+                remaining = range.upperBound..<value.endIndex
+            }
         }
         return result
     }
@@ -359,7 +370,7 @@ struct FileBrowser: View {
         do {
             let response = try await app.client.get("/api/projects/\(projectId)/search", ["q": query, "mode": searchMode, "regex": String(regex), "caseSensitive": String(caseSensitive), "wholeWord": String(wholeWord), "includeIgnored": String(includeIgnored), "folder": folderFilter, "extension": extensionFilter], as: SearchResponse.self)
             guard !Task.isCancelled else { return }
-            results = response.results; error = nil; recentSearch = query
+            results = response.results; files.matches[projectId] = response.results; error = nil; recentSearch = query
         } catch {
             guard !Task.isCancelled else { return }
             self.error = error.localizedDescription
@@ -500,6 +511,10 @@ struct FileViewerPanel: View {
         HStack(spacing: 8) {
             Image(systemName: "doc.text").foregroundStyle(Theme.textDim)
             Text(compact ? (path as NSString).lastPathComponent : path).font(Theme.monoSmall).lineLimit(1).truncationMode(.head)
+            if !(files.matches[projectId] ?? []).isEmpty {
+                Button { navigateMatch(-1) } label: { Image(systemName: "chevron.up") }.accessibilityLabel("Previous match")
+                Button { navigateMatch(1) } label: { Image(systemName: "chevron.down") }.accessibilityLabel("Next match")
+            }
             if dirty { Circle().fill(Theme.accent).frame(width: 7, height: 7).help("Unsaved changes") }
             Spacer()
             if compact {
@@ -540,6 +555,15 @@ struct FileViewerPanel: View {
                 .buttonStyle(.plain).disabled(!dirty).keyboardShortcut("s", modifiers: .command)
         }
         .padding(.horizontal, 10).frame(height: 38).background(Theme.raised)
+    }
+
+    func navigateMatch(_ direction: Int) {
+        let matches = files.matches[projectId] ?? []
+        guard !matches.isEmpty else { return }
+        let current = matches.firstIndex { $0.path == path && $0.line == files.jumpLine } ?? 0
+        let next = matches[(current + direction + matches.count) % matches.count]
+        files.open(project: projectId, path: next.path, line: next.line)
+        mode = "edit"
     }
 
     static let modes = ["edit", "view", "diff", "history"]

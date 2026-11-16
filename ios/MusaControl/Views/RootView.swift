@@ -62,7 +62,9 @@ struct RootView: View {
                     Button("Done") { manualSearch = false }
                 }.padding()
                 if let project = app.workspaceProject ?? app.filesProject ?? app.projects.first?.id {
-                    FileBrowser(projectId: project)
+                    FileBrowser(projectId: project, onOpen: {
+                        app.filesProject = project; app.section = .files; manualSearch = false
+                    })
                     Button("Open in editor") {
                         app.filesProject = project
                         app.section = .files

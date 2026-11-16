@@ -178,7 +178,10 @@ export function createFiles(cfg, projects, events, db) {
     const globs = includeIgnored ? ["--no-ignore"] : [];
     for (const d of cfg.ignoreDirs) globs.push("-g", `!${d}/`);
     if (mode === "name") {
-      const r = await run("rg", ["--files", "--hidden", "-g", "!.git/", ...globs], { cwd: project.path, timeout: 15_000, signal });
+      let r = await run("rg", ["--files", "--hidden", "-g", "!.git/", ...globs], { cwd: project.path, timeout: 15_000, signal });
+      if (r.error?.includes("ENOENT")) {
+        r = await run("git", ["ls-files", "--cached", "--others", ...(includeIgnored ? [] : ["--exclude-standard"])], { cwd: project.path, timeout: 15000, signal });
+      }
       if (r.error) throw Object.assign(new Error("Filename search unavailable"), { status: 422 });
       const q = String(query).toLowerCase();
       const files = r.stdout.split("\n").filter((f) => f && f.toLowerCase().includes(q) && accepts(f)).slice(0, limit);
@@ -186,6 +189,20 @@ export function createFiles(cfg, projects, events, db) {
     }
     const r = await run("rg", ["--json", ...(regex ? [] : ["--fixed-strings"]), caseSensitive ? "--case-sensitive" : "--ignore-case", ...(wholeWord ? ["--word-regexp"] : []), "--max-count", "20", "--max-filesize", "2M", "--hidden", "-g", "!.git/", ...globs, "--", String(query), "."],
       { cwd: project.path, timeout: 20_000, signal });
+    if (r.error?.includes("ENOENT")) {
+      const fallback = await run("git", ["grep", "--untracked", ...(includeIgnored ? ["--no-exclude-standard"] : ["--exclude-standard"]), "-n", "-z", "-I", ...(regex ? ["-E"] : ["-F"]), ...(caseSensitive ? [] : ["-i"]), ...(wholeWord ? ["-w"] : []), "-e", String(query), "--", "."], { cwd: project.path, timeout: 20000, signal });
+      if (fallback.code > 1 || signal?.aborted || /ENOENT|maxBuffer/.test(fallback.error ?? "")) throw Object.assign(new Error("Remote search unavailable: install ripgrep, or use a Git project"), { status: 422 });
+      const results = [];
+      for (const match of fallback.stdout.matchAll(/([^\0]+)\0(\d+)\0([^\n]*)\n/g)) {
+        const p = match[1].replace(/^\.\//, "");
+        if (!accepts(p) || cfg.ignoreDirs.some(d => p.split("/").includes(d))) continue;
+        try { projects.resolveInside(id, p); } catch { continue; }
+        if (mode === "symbols" && !/\b(func|function|class|struct|enum|interface|type|def|fn|protocol|let|const|var)\s/.test(match[3])) continue;
+        results.push({ path: p, line: Number(match[2]), text: match[3] });
+        if (results.length >= limit) break;
+      }
+      return { mode, results };
+    }
     if (r.error || r.code > 1) throw Object.assign(new Error("Search failed. Check the expression and remote ripgrep installation."), { status: 422 });
     const results = [];
     for (const line of r.stdout.split("\n")) {
