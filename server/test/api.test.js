@@ -405,3 +405,21 @@ test("search falls back to Git when ripgrep is unavailable without exposing secr
     fs.unlinkSync(path.join(proj, "src", "fallback.txt"));
   }
 });
+
+test("project search spans large trees and honours ignore, folder and extension filters", async () => {
+  const tree = path.join(proj, "manual-large");
+  fs.mkdirSync(tree);
+  for (let i = 0; i < 1000; i++) fs.writeFileSync(path.join(tree, "file-" + i + ".txt"), "ordinary\n");
+  fs.writeFileSync(path.join(tree, "file-999.txt"), "Exact phrase λ\n");
+  fs.writeFileSync(path.join(tree, "ignored.txt"), "IgnoredManualNeedle\n");
+  fs.writeFileSync(path.join(tree, ".gitignore"), "ignored.txt\n");
+  try {
+    const exact = await api("GET", "/api/projects/demo/search?mode=content&q=" + encodeURIComponent("Exact phrase λ") + "&folder=manual-large&extension=txt");
+    assert.equal(exact.status, 200);
+    assert.deepEqual(exact.body.results.map(r => [r.path, r.line]), [["manual-large/file-999.txt", 1]]);
+    const ignored = "/api/projects/demo/search?mode=content&q=IgnoredManualNeedle";
+    assert.deepEqual((await api("GET", ignored)).body.results, []);
+    assert.equal((await api("GET", ignored + "&includeIgnored=true")).body.results.length, 1);
+    assert.equal((await api("GET", "/api/projects/demo/search?q=ordinary&folder=../../")).status, 400);
+  } finally { fs.rmSync(tree, { recursive: true }); }
+});
