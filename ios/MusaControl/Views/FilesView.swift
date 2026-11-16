@@ -77,6 +77,7 @@ struct FileBrowser: View {
     @State private var results: [SearchResult] = []
     @State private var selectedPaths: Set<String> = []
     @State private var copyStatus: String?
+    @State private var searching = false
     @State private var searchMode = "name"
     @State private var regex = false
     @State private var caseSensitive = false
@@ -172,7 +173,7 @@ struct FileBrowser: View {
                     }
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden)
-                .overlay { if results.isEmpty { Text("No results").font(Theme.caption).foregroundStyle(Theme.textFaint) } }
+                .overlay { if results.isEmpty { Text(searching ? "Searching…" : "No results").font(Theme.caption).foregroundStyle(Theme.textFaint) } }
             } else {
                 breadcrumb
                 List {
@@ -367,6 +368,8 @@ struct FileBrowser: View {
     }
     func search() async {
         guard !query.isEmpty, searchMode != "commands" else { return }
+        searching = true
+        defer { if !Task.isCancelled { searching = false } }
         do {
             let response = try await app.client.get("/api/projects/\(projectId)/search", ["q": query, "mode": searchMode, "regex": String(regex), "caseSensitive": String(caseSensitive), "wholeWord": String(wholeWord), "includeIgnored": String(includeIgnored), "folder": folderFilter, "extension": extensionFilter], as: SearchResponse.self)
             guard !Task.isCancelled else { return }
@@ -594,7 +597,7 @@ struct FileViewerPanel: View {
             case "history":
                 RevisionHistory(projectId: projectId, path: path, revisions: revisions)
             default:
-                CodeEditor(text: $text, path: path, fontSize: 13, jumpLine: files.jumpLine, wordWrap: wordWrap) { Task { await save(force: false) } }
+                CodeEditor(text: $text, path: path, fontSize: 13, jumpLine: files.jumpLine, wordWrap: wordWrap) { Task { await save(force: false) } }.id(path)
             }
         }
     }

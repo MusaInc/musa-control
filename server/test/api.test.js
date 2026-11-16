@@ -383,3 +383,25 @@ test("concurrent manual saves serialize and retain recoverable previous contents
   assert.equal(fs.readFileSync(target, "utf8"), "original\n");
   fs.unlinkSync(target);
 });
+
+test("search falls back to Git when ripgrep is unavailable without exposing secrets", async () => {
+  const fallbackBin = path.join(tmp, "search-fallback-bin");
+  fs.mkdirSync(fallbackBin);
+  fs.symlinkSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim(), path.join(fallbackBin, "git"));
+  fs.writeFileSync(path.join(proj, "src", "fallback.txt"), "FallbackNeedle\n");
+  const oldPath = process.env.PATH;
+  process.env.PATH = fallbackBin;
+  try {
+    const result = await api("GET", "/api/projects/demo/search?mode=content&q=FallbackNeedle");
+    assert.equal(result.status, 200);
+    assert.ok(result.body.results.some(r => r.path === "src/fallback.txt" && r.line === 1));
+    const empty = await api("GET", "/api/projects/demo/search?mode=content&q=NoSuchFallbackNeedle");
+    assert.equal(empty.status, 200);
+    assert.deepEqual(empty.body.results, []);
+    const secrets = await api("GET", "/api/projects/demo/search?mode=content&q=SECRET");
+    assert.ok(!secrets.body.results.some(r => r.path === ".env"));
+  } finally {
+    process.env.PATH = oldPath;
+    fs.unlinkSync(path.join(proj, "src", "fallback.txt"));
+  }
+});

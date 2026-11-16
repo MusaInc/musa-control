@@ -105,6 +105,22 @@ final class MusaControlUITests: XCTestCase {
         snap(app, "launcher")
     }
 
+    func testManualSearchAndNavigatorRecovery() {
+        let app = launch("workspaces", orientation: .landscapeLeft)
+        XCTAssertTrue(app.buttons["project.cityswing"].waitForExistence(timeout: 8))
+        app.buttons["project.cityswing"].tap()
+        XCTAssertTrue(app.buttons["Code"].waitForExistence(timeout: 8))
+        app.buttons["Code"].tap()
+        XCTAssertTrue(app.buttons["Restore project navigator"].exists)
+        app.buttons["Search project"].tap()
+        XCTAssertTrue(app.textFields["Find file"].waitForExistence(timeout: 5))
+        app.buttons["Done"].tap()
+        app.buttons["Restore project navigator"].tap()
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(app.buttons["Restore project navigator"].waitForExistence(timeout: 5))
+        snap(app, "manual-workspace-portrait")
+    }
+
     func testWorkspaceOpensWithPanels() {
         let app = launch("workspaces", orientation: .landscapeLeft)
         let card = app.buttons["project.cityswing"]
