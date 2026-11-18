@@ -61,15 +61,25 @@ onboarding screenshot was visually reviewed on the iPad simulator.
 [Release build 0.4.3](https://github.com/MusaInc/musa-control/actions/runs/44390804983)
 completed successfully: **0.4.3 (116)** is uploaded and Apple processing is
 **VALID**. Internal state is IN_BETA_TESTING; external state is
-**READY_FOR_BETA_SUBMISSION**. Tester membership updates were skipped.
-External review has not been submitted; no invitation was sent.
+**WAITING_FOR_BETA_REVIEW** after submission at 21:11 UTC on 2026-11-18.
+Apple review state is **WAITING_FOR_REVIEW**. No invitation was sent.
 
 ## Remaining release gates
 
-Submission and approval of external Beta App Review, and a physical iPad sign-in/task
-with Hafsa's own subscription. Beta review must not receive access to Hafsa's
-workspace or the owner's workspace; provide a separate reviewer environment
-if Apple requires interactive access. Invite only after the build is approved.
+Apple approval and a physical iPad sign-in/task with Hafsa's own subscription
+remain required. Apple has a separate, restricted reviewer environment with a
+sample project, private review-only credential and instructions. Reviewer
+isolation tests passed locally and through HTTPS, including rejection of its
+tokens by Hafsa and the owner gateway, network/storage/resource restrictions,
+terminal reconnection, restart persistence and revocation. No model account
+was shared; live Codex requires the reviewer's own subscription.
+
+The approval watcher is active and its first runs correctly held invitation
+for WAITING_FOR_REVIEW / WAITING_FOR_BETA_REVIEW. Policy tests cover pending,
+rejected, wrong-version, unready and expired builds and changed groups. It
+checks every 15 minutes and only invites after exact-build approval plus
+workspace readiness. TestFlight includes iPad setup instructions. No Hafsa
+pairing credential has been generated or sent.
 
 ## Deployment incident
 

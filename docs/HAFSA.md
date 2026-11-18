@@ -95,16 +95,32 @@ only Hafsa's service, remove only its container (not storage), and rerun
 
 ## TestFlight gate
 
-Use `node tools/testflight-status.mjs` for a read-only Apple status report using
-local configured ASC credentials. On 2026-11-18, the existing build 0.4.2 (114)
-was valid for internal testing, with external state READY_FOR_BETA_SUBMISSION;
-there was only the internal Musa Team group. An empty external Hafsa group
-was subsequently created with zero testers and its public link disabled. That is not an external invite.
+Build **0.4.3 (116)** was submitted for external Beta App Review on
+2026-11-18 at 21:11 UTC. Apple reports **WAITING_FOR_REVIEW**. The external
+Hafsa group contains this build, has its public link disabled, and no tester
+was invited at submission.
 
-Build **0.4.3 (116)** passed macOS build/unit/onboarding UI tests, was uploaded
-with `internal_testers=false`, and has Apple processing state VALID. Its external
-state is READY_FOR_BETA_SUBMISSION. It must still be submitted for and pass
-Apple's Beta App Review before Hafsa can install it as an external tester. Create an
-external Hafsa group, attach the reviewed build, then invite by her email or
-an explicitly enabled public link. Do not add her as an App Store Connect team
-member. No invitation is sent by this implementation.
+Apple received a separate reviewer workspace at
+https://review.159-195-109-68.sslip.io, a private review-only credential and
+instructions for its sample project. It has no owner or Hafsa accounts,
+projects or administrator access. Its 2 GiB storage, 512 MiB RAM and 0.5 CPU
+are bounded independently. The review credential expires after 30 days;
+renew it and update Apple's review details if review takes longer.
+
+`musa-hafsa-beta-release.timer` checks every 15 minutes. It invites the saved
+recipient only when Apple approves this exact build, external testing is ready,
+the private group contains only this build, and Hafsa's verified container and
+HTTPS authentication gate remain healthy. Pending/rejected review or changed
+recipient/container holds the invitation. The watcher never creates or sends
+pairing credentials. Its state is root-only in `/var/lib/musa-beta-release`.
+Inspect the service journal for failures; an ambiguous invitation attempt is
+held for manual inspection rather than blindly resent.
+
+TestFlight's **What to Test** contains iPad setup instructions: install the
+approved build, choose Connect your hosted workspace, enter name Hafsa and
+https://hafsa.159-195-109-68.sslip.io, then ask Abdul for a fresh connection
+code. Sign in to Codex using Hafsa's own ChatGPT subscription. Issue the
+10-minute code only after approval and readiness checks, when she is ready.
+
+Use `node tools/testflight-status.mjs` for read-only Apple status. The watcher
+is installed with `sudo bash deploy/reviewer/install-release-watch.sh`.

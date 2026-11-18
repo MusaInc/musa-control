@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+# Only this dedicated bridge is affected. No global policy is changed.
+BR=mc-review
+# Replace both chains in a single transaction so reapplying protection never
+# creates an interval with an empty allow-all chain.
+iptables -w -N MC_REVIEW 2>/dev/null || true
+iptables -w -N MC_REVIEW_HOST 2>/dev/null || true
+RULES=$(mktemp)
+trap 'rm -f "$RULES"' EXIT
+{
+  echo '*filter'
+  echo '-F MC_REVIEW'
+  echo '-F MC_REVIEW_HOST'
+  echo '-A MC_REVIEW -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN'
+  for cidr in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4; do
+    echo "-A MC_REVIEW -d $cidr -j REJECT"
+  done
+  while read -r addr; do echo "-A MC_REVIEW -d $addr -j REJECT"; done < <(ip -o -4 addr show | awk '{print $4}')
+  echo '-A MC_REVIEW -p tcp -m multiport --dports 80,443 -j RETURN'
+  echo '-A MC_REVIEW -p udp --dport 53 -j RETURN'
+  echo '-A MC_REVIEW -p tcp --dport 53 -j RETURN'
+  echo '-A MC_REVIEW -j REJECT'
+  echo '-A MC_REVIEW_HOST -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT'
+  echo '-A MC_REVIEW_HOST -j REJECT'
+  echo 'COMMIT'
+} > "$RULES"
+iptables-restore --wait 5 --noflush < "$RULES"
+iptables -w -C DOCKER-USER -i "$BR" -j MC_REVIEW 2>/dev/null || iptables -w -I DOCKER-USER 1 -i "$BR" -j MC_REVIEW
+iptables -w -C INPUT -i "$BR" -j MC_REVIEW_HOST 2>/dev/null || iptables -w -I INPUT 1 -i "$BR" -j MC_REVIEW_HOST
+ip6tables -w -C INPUT -i "$BR" -j REJECT 2>/dev/null || ip6tables -w -I INPUT 1 -i "$BR" -j REJECT
+ip6tables -w -C FORWARD -i "$BR" -j REJECT 2>/dev/null || ip6tables -w -I FORWARD 1 -i "$BR" -j REJECT
