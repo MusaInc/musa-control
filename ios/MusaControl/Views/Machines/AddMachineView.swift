@@ -4,7 +4,7 @@ import UIKit
 /// Connect a computer: pick how it's reached, then either the SSH setup
 /// (host key check → install → pair → tunnel) or the relay link code.
 struct AddMachineView: View {
-    enum Route: Hashable { case ssh(String), windows, relay }
+    enum Route: Hashable { case ssh(String), windows, relay, hosted }
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var path: [Route] = []
@@ -14,6 +14,8 @@ struct AddMachineView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("How is this computer reached?").font(Theme.title)
+                    WelcomeOption(icon: "lock.shield", title: "Hosted workspace", detail: "Have a connection address and a one-time code? Connect here, then sign in with your own ChatGPT account.") { path.append(.hosted) }
+                        .accessibilityIdentifier("add.hosted")
                     WelcomeOption(icon: "server.rack", title: "Linux server or VPS", detail: "Over SSH. Hetzner, DigitalOcean, AWS, a Raspberry Pi, a home server…") { path.append(.ssh("linux")) }
                         .accessibilityIdentifier("add.linux")
                     WelcomeOption(icon: "laptopcomputer", title: "Mac", detail: "Over SSH: turn on System Settings → General → Sharing → Remote Login. Same network, Tailscale or a reachable address.") { path.append(.ssh("mac")) }
@@ -34,6 +36,7 @@ struct AddMachineView: View {
             .navigationDestination(for: Route.self) { r in
                 switch r {
                 case .ssh(let kind): SSHSetupView(kind: kind) { m in finish(m) }
+                case .hosted: HostedWorkspaceView { dismiss() }
                 case .windows: WindowsGuideView { path.append($0) }
                 case .relay: RelayLinkView { m in finish(m) }
                 }

@@ -49,13 +49,13 @@ struct TerminalPane: View {
                         Image(systemName: "lock.trianglebadge.exclamationmark").font(.system(size: 24)).foregroundStyle(Theme.yellow)
                         Text(msg).font(Theme.label).multilineTextAlignment(.center).frame(maxWidth: 420)
                         HStack {
-                            Button("Open SSH settings") { app.go(.settings) }
+                            if app.activeMachine?.usesSocketTerminal != true { Button("Open SSH settings") { app.go(.settings) } }
                             Button("Retry") { session.reconnectNow() }
                         }.font(Theme.label)
                     }
                     .padding(20).background(Theme.raised, in: RoundedRectangle(cornerRadius: 12))
                 case .connecting:
-                    ProgressView("Connecting to \(SSHSettings.stored?.host ?? "server")…").padding(14).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
+                    ProgressView("Connecting to \(app.activeMachine?.name ?? "workspace")…").padding(14).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
                 default: EmptyView()
                 }
             }
@@ -78,7 +78,7 @@ struct TerminalSectionView: View {
             tabBar
             if store.sessions.isEmpty {
                 VStack(spacing: 16) {
-                    EmptyNote(icon: "terminal", text: "No terminal open", detail: "Every tab is a real SSH session attached to a tmux session on the server, so work keeps running if the \(Device.name) disconnects.")
+                    EmptyNote(icon: "terminal", text: "No terminal open", detail: "Every tab connects to a persistent terminal on your workspace, so work keeps running if the \(Device.name) disconnects.")
                     HStack {
                         Button { store.newShell() } label: { Label("New shell", systemImage: "plus").padding(.horizontal, 14).frame(height: 36).background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.onAccent) }.buttonStyle(.plain)
                         attachMenu

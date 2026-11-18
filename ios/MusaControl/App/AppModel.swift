@@ -131,6 +131,19 @@ final class AppModel {
         await activate(m)
     }
 
+    /// Hosted workspaces get their own Keychain entry; never replace the studio connection.
+    func pairHosted(server: String, code: String, name: String) async throws {
+        let url = try HostedConnection.url(server)
+        let tmp = GatewayClient(base: url, token: nil)
+        let response = try await tmp.send("POST", "/api/pair", ["code": code, "deviceName": UIDevice.current.name], as: PairResponse.self)
+        let existing = MachineStore.all.first { !$0.isPersonal && $0.kind == .direct && $0.url == url.absoluteString }
+        let machine = Machine(id: existing?.id ?? UUID().uuidString, name: name.isEmpty ? "My workspace" : name, kind: .direct,
+                              url: url.absoluteString, platform: "linux", addedAt: Date().timeIntervalSince1970)
+        Keychain.setString(response.token, for: machine.tokenKey)
+        MachineStore.upsert(machine)
+        await activate(machine)
+    }
+
     /// Forget the active machine's credentials (the machine itself keeps
     /// running). Falls back to another saved machine, or onboarding.
     func unpair() {

@@ -144,6 +144,8 @@ export function loadConfig(overrides = {}) {
   const base = profile === "companion" ? { ...defaults, ...companionDefaults } : { ...defaults, profile: "personal" };
   const cfg = merge(merge(base, fromFile), overrides);
   cfg.profile = profile;
+  // Deployment policy is supplied by the service, never by a tenant config.
+  cfg.hosted = process.env.MUSA_HOSTED === "1";
   cfg.configFile = file;
   if (process.env.MUSA_CONTROL_PORT) cfg.port = Number(process.env.MUSA_CONTROL_PORT);
   if (process.env.MUSA_CONTROL_DATA) cfg.dataDir = process.env.MUSA_CONTROL_DATA;

@@ -18,6 +18,7 @@ import { processTable, cwdOf } from "./platform.js";
 import * as tmux from "./tmux.js";
 import { parsePrompt, keysFor } from "./prompts.js";
 import { parseClaudeLine, parseCodexLine, parseGeminiLine } from "./transcripts.js";
+import { run } from "./exec.js";
 import { expand } from "./config.js";
 
 export const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
@@ -328,6 +329,12 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   // ---------- control ----------
   async function launch({ agent, project, prompt = "", mode = "default", resume = null, allowDuplicate = false, model = null }) {
     if (!AGENTS.includes(agent)) throw Object.assign(new Error("agent must be claude, codex or gemini"), { status: 400 });
+    if (cfg.hosted) {
+      if (agent !== "codex") throw Object.assign(new Error("This workspace uses your own ChatGPT subscription."), { status: 403 });
+      const login = await run(cfg.codexBinary, ["login", "status"], { timeout: 15000 });
+      if (login.code !== 0 || !/Logged in using ChatGPT/i.test(login.stdout + login.stderr))
+        throw Object.assign(new Error("Sign in to your own ChatGPT account in Machines & AI before starting. No other account or API key will be used."), { status: 409 });
+    }
     const p = projects.get(project);
     const live = list({ includeEnded: false }).filter((v) => v.managed && v.status !== "exited");
     if (live.length >= cfg.maxManagedAgents) throw Object.assign(new Error(`Already running ${live.length} agents from Musa Control (limit ${cfg.maxManagedAgents}). Stop one first.`), { status: 429 });

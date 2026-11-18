@@ -161,8 +161,9 @@ struct ProviderInfo: Codable, Identifiable, Hashable {
     struct Auth: Codable, Hashable { let signedIn: Bool?; let method: String?; let detail: String? }
     struct Key: Codable, Hashable { let set: Bool; let last4: String? }
     let id: String; let name: String; let vendor: String; let plan: String; let docs: String?; let npmPackage: String?
+    let subscriptionOnly: Bool?
     let installed: Bool; let version: String?; let auth: Auth; let apiKey: Key
-    enum CodingKeys: String, CodingKey { case id, name, vendor, plan, docs, npmPackage = "package", installed, version, auth, apiKey }
+    enum CodingKeys: String, CodingKey { case id, name, vendor, plan, docs, npmPackage = "package", installed, version, auth, apiKey, subscriptionOnly }
 }
 struct TmuxSessionRef: Codable, Hashable, Identifiable { let tmux: String; var id: String { tmux } }
 
@@ -209,6 +210,7 @@ struct ProvidersPanel: View {
                 Spacer()
                 status(p)
             }
+            if p.subscriptionOnly == true { Text("Uses only your ChatGPT subscription. If you sign out or reach your limit, work pauses until you reconnect or your allowance returns.").font(Theme.caption).foregroundStyle(Theme.textDim) }
             Text(p.plan).font(Theme.caption).foregroundStyle(Theme.textFaint).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 if !p.installed {
@@ -218,7 +220,9 @@ struct ProvidersPanel: View {
                 } else {
                     Button("Sign in again") { Task { await startLogin(p) } }.buttonStyle(.bordered)
                 }
+                if p.subscriptionOnly != true {
                 Button(p.apiKey.set ? "API key ··\(p.apiKey.last4 ?? "")" : "Use API key") { keyFor = p }.buttonStyle(.bordered).disabled(!p.installed && p.id == "codex")
+                }
             }
             .controlSize(.small)
         }

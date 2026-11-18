@@ -31,6 +31,8 @@ struct Machine: Codable, Identifiable, Hashable {
 
     static let personalId = "personal"
 
+    var usesSocketTerminal: Bool { kind == .relay || (kind == .direct && !isPersonal) }
+
     var isPersonal: Bool { id == Self.personalId }
 
     /// Keychain item holding this machine's device token (relay machines use

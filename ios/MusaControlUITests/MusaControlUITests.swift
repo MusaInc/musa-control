@@ -255,6 +255,17 @@ final class MusaControlUITests: XCTestCase {
         }
     }
 
+    func testHostedWorkspaceOnboarding() {
+        let app = launch("home", orientation: .landscapeLeft, extra: ["-onboarding"])
+        XCTAssertTrue(app.buttons["welcome.hosted"].waitForExistence(timeout: 10))
+        app.buttons["welcome.hosted"].tap()
+        XCTAssertTrue(app.textFields["hosted.address"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.secureTextFields["hosted.code"].exists)
+        XCTAssertFalse(app.buttons["hosted.connect"].isEnabled)
+        XCTAssertFalse(app.textFields["ssh.host"].exists)
+        snap(app, "hafsa-hosted-onboarding")
+    }
+
     func testMachinesAndProviders() {
         let app = launch("machines", orientation: .landscapeLeft, appearance: "dark")
         XCTAssertTrue(app.staticTexts["Musa Studios VPS"].waitForExistence(timeout: 10))

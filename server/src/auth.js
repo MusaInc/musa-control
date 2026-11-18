@@ -126,7 +126,10 @@ export function createAuth(cfg, db) {
     if (!token && allowCookie) {
       const c = cookieValue(req);
       const s = c && webSessions.get(c);
-      if (s && s.expires > Date.now()) return s.device;
+      if (s && s.expires > Date.now()) {
+        const current = db.raw.prepare("SELECT * FROM devices WHERE id=? AND revoked=0 AND expires_at>?").get(s.device.id, Date.now());
+        if (current) return current;
+      }
       return null;
     }
     if (!token) return null;

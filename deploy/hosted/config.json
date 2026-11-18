@@ -1,0 +1,11 @@
+{
+  "host": "0.0.0.0", "port": 8170, "machineName": "Hafsa",
+  "publicBase": "https://musastudios.co.uk/control-hafsa",
+  "roots": [{"path": "~/projects", "depth": 1, "requireGit": false}],
+  "extra": [], "services": [], "previews": {}, "passwordHashFile": null,
+  "codexBinary": "/usr/local/bin/hafsa-codex",
+  "maxManagedAgents": 2,
+  "watch": {"maxProjects": 3, "maxDirsPerProject": 1500},
+  "eventsKeep": 10000, "revisionsKeep": 3000, "screenshotsKeep": 300,
+  "secretPatterns": ["(^|/)\\.env($|\\.)", "(^|/)\\.(ssh|codex|config)/", "auth\\.json$", "credentials\\.json$", "\\.(p8|pem|key|p12)$"]
+}

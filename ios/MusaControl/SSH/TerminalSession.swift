@@ -113,10 +113,14 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
 
     /// Machines reached through the relay have no SSH from the iPad: the
     /// same tmux session is attached over the relay's WebSocket instead.
-    private func connectRelay(_ m: Machine) async throws {
-        guard let token = CloudAuth.token, let cid = m.cloudId else { throw SSHFailure.notConfigured }
+    private func connectSocket(_ m: Machine) async throws {
+        guard let token = m.token else { throw SSHFailure.notConfigured }
+        let base: URL
+        if m.kind == .relay, let cid = m.cloudId { base = CloudAuth.machineBase(cid) }
+        else if let url = m.url { base = try HostedConnection.url(url) }
+        else { throw SSHFailure.notConfigured }
         let t0 = Date()
-        var comps = URLComponents(url: CloudAuth.machineBase(cid).appendingPathComponent("api/terminal/ws"), resolvingAgainstBaseURL: false)!
+        var comps = URLComponents(url: base.appendingPathComponent("api/terminal/ws"), resolvingAgainstBaseURL: false)!
         comps.scheme = comps.scheme == "http" ? "ws" : "wss"
         var items = [URLQueryItem(name: "session", value: tmuxName), URLQueryItem(name: "cols", value: String(size.cols)), URLQueryItem(name: "rows", value: String(size.rows))]
         if let directory { items.append(URLQueryItem(name: "dir", value: directory)) }
@@ -141,7 +145,7 @@ final class TerminalSession: NSObject, Identifiable, TerminalViewDelegate {
     }
 
     private func connectOnce() async throws {
-        if let m = MachineStore.active, m.kind == .relay { try await connectRelay(m); return }
+        if let m = MachineStore.active, m.usesSocketTerminal { try await connectSocket(m); return }
         guard let s = SSHSettings.stored, s.keyInstalled, !s.pinnedFingerprints.isEmpty else { throw SSHFailure.notConfigured }
         let t0 = Date()
         let validator = PinnedHostKeyValidator(pins: s.pinnedFingerprints)

@@ -24,7 +24,7 @@ struct SettingsView: View {
                 Button("Reconnect") { Task { await app.connect() } }
                 if app.activeMachine?.kind != .relay { Button("Forget this computer", role: .destructive) { confirmUnpair = true } }
             }
-            if app.activeMachine?.kind != .relay { SwiftUI.Section {
+            if app.activeMachine?.usesSocketTerminal != true { SwiftUI.Section {
                 ForEach(devices) { d in
                     HStack {
                         VStack(alignment: .leading) {

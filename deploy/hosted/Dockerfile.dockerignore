@@ -1,0 +1,16 @@
+**
+!server
+!server/package.json
+!server/package-lock.json
+!server/src
+!server/src/**
+!server/bin
+!server/bin/**
+!deploy
+!deploy/hosted
+!deploy/hosted/config.json
+!deploy/hosted/codex
+!deploy/hosted/start.sh
+
+!server/web
+!server/web/**

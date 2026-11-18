@@ -153,6 +153,7 @@ export function createServer(overrides = {}) {
   route("DELETE", "/api/devices/:id", ({ params }) => { auth.revoke(params.id); ssh.deauthorize(params.id, cfg.authorizedKeysFile); return { ok: true }; });
   route("GET", "/api/ssh/hostkeys", () => ({ ...ssh.hostKeys(), host: cfg.sshHost || (cfg.profile === "personal" ? "musastudios.co.uk" : os.hostname()) }));
   route("POST", "/api/ssh/authorize", ({ device, body }) => {
+    if (cfg.hosted) throw Object.assign(new Error("Hosted workspaces use secure terminals in the app; SSH access is disabled."), {status:403});
     const r = ssh.authorize(device.id, device.name, body.publicKey, cfg.authorizedKeysFile);
     events.emit({ kind: "ssh.authorized", title: `SSH key installed for ${device.name}`, detail: { device: device.id } });
     return { ...r, ...ssh.hostKeys(), host: cfg.sshHost || (cfg.profile === "personal" ? "musastudios.co.uk" : os.hostname()) };
@@ -332,7 +333,7 @@ export function createServer(overrides = {}) {
     if (since) for (const e of events.query({ after: since, project, limit: 500 })) send(e);
     res.write(`event: hello\ndata: ${JSON.stringify({ time: Date.now(), version: VERSION })}\n\n`);
     const unsub = events.subscribe(send);
-    const ping = setInterval(() => res.write(`: ping ${Date.now()}\n\n`), 20_000);
+    const ping = setInterval(() => { if (!auth.authenticate(req)) return res.end(); res.write(`: ping ${Date.now()}\n\n`); }, 5000);
     req.on("close", () => { unsub(); clearInterval(ping); });
   });
 
@@ -438,16 +439,21 @@ export function createServer(overrides = {}) {
   }
 
   const server = http.createServer((req, res) => { handle(req, res).catch((e) => { console.error(e); if (!res.headersSent) json(res, 500, { error: "Internal error" }); }); });
+  function guardSocket(ws, req) {
+    const timer = setInterval(() => { if (!auth.authenticate(req, {allowCookie:true})) ws.close(4401, "Connection revoked. Pair again."); }, 1000);
+    ws.once("close", () => clearInterval(timer));
+  }
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url, "http://localhost");
     const pathname = url.pathname.replace(/^\/control(?=\/)/, "");
     const m = pathname.match(/^\/api\/vnc\/(\d{1,4})\/ws$/);
     const device = auth.authenticate(req, { allowCookie: true });
     if (pathname === "/api/terminal/ws" && device) {
-      return wss.handleUpgrade(req, socket, head, (ws) => terminal.attach(ws, { session: url.searchParams.get("session"), project: url.searchParams.get("project"), dir: url.searchParams.get("dir"), cols: url.searchParams.get("cols"), rows: url.searchParams.get("rows"), device }));
+      return wss.handleUpgrade(req, socket, head, (ws) => { guardSocket(ws, req); terminal.attach(ws, { session: url.searchParams.get("session"), project: url.searchParams.get("project"), dir: url.searchParams.get("dir"), cols: url.searchParams.get("cols"), rows: url.searchParams.get("rows"), device }); });
     }
     if (!m || !device) { socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"); return socket.destroy(); }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      guardSocket(ws, req);
       vnc.bridge(ws, { display: m[1], mode: url.searchParams.get("mode") === "control" ? "control" : "observe", device })
         .catch((e) => { try { ws.close(1011, String(e.message).slice(0, 100)); } catch {} });
     });

@@ -1,0 +1,6 @@
+#!/bin/sh
+# This image contains no host credentials. Only the tenant's persistent home
+# is consulted; provider keys/proxies are not inherited from the service.
+unset OPENAI_API_KEY CODEX_API_KEY OPENAI_BASE_URL OPENAI_ORG_ID OPENAI_ORGANIZATION OPENAI_PROJECT_ID
+export CODEX_HOME=/home/hafsa/.codex
+exec /usr/local/bin/codex -c 'forced_login_method="chatgpt"' -c 'cli_auth_credentials_store="file"' "$@"

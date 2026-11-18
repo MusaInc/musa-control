@@ -93,24 +93,26 @@ export function createProviders(cfg, events) {
   async function detect(id) {
     const p = PROVIDERS[id];
     const bin = binary(id);
-    const keys = readKeys();
+    const keys = cfg.hosted ? {} : readKeys();
     const key = keys[id] ? { set: true, last4: keys[id].slice(-4) } : { set: false };
     if (!bin) return { ...publicInfo(p), installed: false, version: null, auth: { signedIn: false, method: null, detail: "Not installed" }, apiKey: key };
     const [v, auth] = await Promise.all([version(bin), authOf(id, bin).catch((e) => ({ signedIn: null, detail: e.message }))]);
+    if (cfg.hosted && auth.method !== "ChatGPT") { auth.signedIn = false; auth.detail = "Sign in with your own ChatGPT subscription."; }
     if (!auth.signedIn && key.set) { auth.signedIn = true; auth.method = auth.method || "API key (saved here)"; }
     return { ...publicInfo(p), installed: true, path: bin, version: v, auth, apiKey: key };
   }
 
-  const publicInfo = (p) => ({ id: p.id, name: p.name, vendor: p.vendor, plan: p.plan, docs: p.docs, package: p.package });
+  const publicInfo = (p) => ({ subscriptionOnly: Boolean(cfg.hosted), id: p.id, name: p.name, vendor: p.vendor, plan: p.plan, docs: p.docs, package: p.package });
 
   async function list({ fresh = false } = {}) {
     if (!fresh && cache.list && Date.now() - cache.at < 30_000) return cache.list;
-    const out = await Promise.all(Object.keys(PROVIDERS).map((id) => detect(id)));
+    const out = await Promise.all((cfg.hosted ? ["codex"] : Object.keys(PROVIDERS)).map((id) => detect(id)));
     cache = { at: Date.now(), list: out };
     return out;
   }
 
   function need(id) {
+    if (cfg.hosted && id !== "codex") throw bad("This workspace uses your own ChatGPT subscription.", 403);
     if (!PROVIDERS[id]) throw bad("Unknown provider");
     return PROVIDERS[id];
   }
@@ -176,6 +178,7 @@ export function createProviders(cfg, events) {
 
   async function setKey(id, key) {
     const p = need(id);
+    if (cfg.hosted) throw bad("Sign in with your own ChatGPT subscription. API key billing is disabled here.", 403);
     const k = String(key || "").trim();
     if (!p.keyPattern.test(k)) throw bad(`That doesn't look like a ${p.vendor} API key.`);
     if (id === "codex") {
@@ -198,6 +201,7 @@ export function createProviders(cfg, events) {
 
   // Environment for an agent launched from the app: its saved API key, if any.
   function envFor(agent) {
+    if (cfg.hosted) return {};
     const p = PROVIDERS[agent];
     const k = p && readKeys()[agent];
     return k ? { [p.keyEnv]: k } : {};

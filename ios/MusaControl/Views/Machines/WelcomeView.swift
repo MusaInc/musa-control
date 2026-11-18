@@ -10,6 +10,7 @@ struct WelcomeView: View {
     @State private var account = Account.shared
     @State private var showEmail = false
     @State private var showPairing = false
+    @State private var showHosted = false
     @State private var error: String?
     @State private var busy = false
 
@@ -27,6 +28,8 @@ struct WelcomeView: View {
                         }
                     }
                     features
+                    WelcomeOption(icon: "lock.shield", title: "Connect your hosted workspace", detail: "Enter the address and one-time code you were given. Then connect your own ChatGPT subscription.") { showHosted = true }
+                        .accessibilityIdentifier("welcome.hosted")
                     if account.signedIn { signedIn } else { signInOptions }
                     if let error { Label(error, systemImage: "exclamationmark.triangle.fill").font(Theme.label).foregroundStyle(Theme.red).fixedSize(horizontal: false, vertical: true) }
                     VStack(alignment: .leading, spacing: 10) {
@@ -42,6 +45,7 @@ struct WelcomeView: View {
                 .frame(maxWidth: 560).padding(28).frame(maxWidth: .infinity)
             }
         }
+        .sheet(isPresented: $showHosted) { NavigationStack { HostedWorkspaceView { showHosted = false } } }
         .sheet(isPresented: $showEmail) { EmailSignInSheet() }
         .sheet(isPresented: $showPairing) { NavigationStack { PairingView().toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { showPairing = false } } } } }
         .sheet(isPresented: $app.showAddMachine) { AddMachineView() }
