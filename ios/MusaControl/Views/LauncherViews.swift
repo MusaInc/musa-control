@@ -16,6 +16,7 @@ struct AgentLauncher: View {
     @State private var duplicate: String?
     @State private var errorOutput: String?
     @FocusState private var focus: Bool
+    private var hosted: Bool { app.activeMachine?.kind == .direct && app.activeMachine?.isPersonal == false }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -25,7 +26,7 @@ struct AgentLauncher: View {
                 IconButton(systemName: "xmark", help: "Close") { dismiss() }
             }
             Picker("Agent", selection: $agent) {
-                Label("Claude Code", systemImage: "sparkle").tag("claude")
+                if !hosted { Label("Claude Code", systemImage: "sparkle").tag("claude") }
                 Label("Codex", systemImage: "terminal").tag("codex")
             }.pickerStyle(.segmented)
             // The project decides where the agent runs and what it can edit, so
@@ -66,8 +67,8 @@ struct AgentLauncher: View {
         .padding(20).frame(minWidth: Device.isPhone ? nil : 360, idealWidth: 600)
         .frame(maxHeight: Device.isPhone ? CGFloat.infinity : nil, alignment: .top)
         .background(Theme.surface)
-        .onAppear { project = initialProject ?? app.workspaceProject; focus = true }
-        .onChange(of: agent) { _, a in mode = mode == "unattended" ? "unattended" : "default"; UserDefaults.standard.set(a, forKey: "launcher.agent") }
+        .onAppear { project = initialProject ?? app.workspaceProject; if hosted { agent = "codex" }; focus = true }
+        .onChange(of: agent) { _, a in mode = mode == "unattended" ? "unattended" : "default"; if !hosted { UserDefaults.standard.set(a, forKey: "launcher.agent") } }
     }
 
     var runsIn: some View {

@@ -1,5 +1,6 @@
 // Run as root with Node 22+. No credential values are printed or written.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 const require = createRequire(new URL('../../server/package.json', import.meta.url));
@@ -62,8 +63,8 @@ try {
  ok('no Codex login, no API-key fallback, agent start blocked before authentication, SSH disabled');
  const wsbase=base.replace(/^http/,'ws');
  async function terminal(marker,command) {
-   const ws=new WebSocket(wsbase+'/api/terminal/ws?session=security-check',{headers:{Authorization:`Bearer ${token}`}});
-   await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Terminal timeout')),10000); let text='';ws.on('error',reject);ws.on('message',d=>{text+=d; if(text.includes(marker)){clearTimeout(timeout); resolve();}});ws.on('open',()=>setTimeout(()=>ws.send(Buffer.from(command+'\r')),200));});
+   const ws=new WebSocket(wsbase+'/api/terminal/ws?session=security-check&cols=120&rows=36',{headers:{Authorization:`Bearer ${token}`}});
+   await new Promise((resolve,reject)=>{let text='';const timeout=setTimeout(()=>{ws.terminate();reject(Error('Terminal timeout: '+text.slice(-1200)));},10000);ws.on('error',reject);ws.on('message',d=>{text+=d; if(text.includes(marker)){clearTimeout(timeout); resolve();}});ws.on('open',()=>setTimeout(()=>ws.send(Buffer.from(command+'\r')),200));});
    ws.close();return ws;
  }
  await terminal('FIRST_CONNECTION_OK','export HAFSA_RECONNECT=kept; printf "FIRST_CONNECTION_%s\\n" OK');
@@ -85,4 +86,5 @@ try {
  inside('node','--no-warnings','/opt/musa/bin/musa-companion.js','revoke',id);
  for(const name of ['security-check','revocation-check']) {try{inside('tmux','kill-session','-t',name);}catch{}}
 }
+fs.writeFileSync('/var/lib/musa-tenants/hafsa/security-passed', `${inspect.Id} ${inspect.Image}\n${new Date().toISOString()}\n`, {mode:0o600});
 console.log('SECURITY CHECKS PASSED; verification device revoked. No invitation credential issued.');

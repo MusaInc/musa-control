@@ -18,6 +18,10 @@ on:
         description: "Archive + sign after the tests pass"
         type: boolean
         default: false
+      internal_testers:
+        description: "Update internal tester membership after upload"
+        type: boolean
+        default: true
       upload:
         description: "Upload the signed build to TestFlight (off = sign and export the .ipa only)"
         type: boolean
@@ -282,7 +286,7 @@ jobs:
         run: python3 ../tools/asc.py wait "$BUNDLE_ID" "$BUILD"
 
       - name: Make it testable (compliance + internal testers)
-        if: inputs.upload
+        if: inputs.upload && inputs.internal_testers
         env: { KEY_ID: "${{ secrets.ASC_KEY_ID }}", ISSUER: "${{ secrets.ASC_ISSUER_ID }}" }
         run: python3 ../tools/asc.py testable "$BUNDLE_ID" "$BUILD"
 
