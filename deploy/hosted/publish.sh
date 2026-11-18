@@ -12,6 +12,7 @@ if ! grep -q "^$HOST {" "$CF"; then
   cat >> "$CF" <<CADDY
 
 $HOST {
+    import public_tls
     header {
         Strict-Transport-Security "max-age=31536000"
         X-Content-Type-Options "nosniff"
@@ -29,6 +30,11 @@ $HOST {
 }
 CADDY
   if ! caddy validate --config "$CF" --adapter caddyfile >/dev/null 2>&1; then cp "$BAK" "$CF"; echo 'Validation failed; original config restored.'; exit 1; fi
-  if ! systemctl reload caddy; then cp "$BAK" "$CF"; systemctl reload caddy; exit 1; fi
+  # This VPS's Caddy process panicked during reload. Use a bounded restart
+  # with immediate restoration, and retain the existing site's health gate.
+  if ! timeout 15 systemctl restart caddy; then cp "$BAK" "$CF"; systemctl restart caddy; exit 1; fi
+  if ! curl -fsS --max-time 10 https://musastudios.co.uk/control/api/ping >/dev/null; then
+    cp "$BAK" "$CF"; systemctl restart caddy; echo 'Existing site health failed; restored original proxy.'; exit 1
+  fi
 fi
 echo "Hafsa endpoint configured: https://$HOST (no access code issued)"
