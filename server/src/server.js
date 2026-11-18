@@ -444,6 +444,11 @@ export function createServer(overrides = {}) {
     ws.once("close", () => clearInterval(timer));
   }
   server.on("upgrade", (req, socket, head) => {
+    // Native clients send no Origin. Browser terminals must come from this
+    // hosted gateway, even if another site shares the same registrable domain.
+    if (cfg.hosted && req.headers.origin && req.headers.origin !== new URL(cfg.publicBase).origin) {
+      socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"); return socket.destroy();
+    }
     const url = new URL(req.url, "http://localhost");
     const pathname = url.pathname.replace(/^\/control(?=\/)/, "");
     const m = pathname.match(/^\/api\/vnc\/(\d{1,4})\/ws$/);

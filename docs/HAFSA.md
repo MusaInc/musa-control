@@ -15,7 +15,8 @@ The owner's personal gateway is not restarted or reconfigured.
 - 1 CPU maximum, CPU shares 128, 1536 MiB RAM, no swap, 256 processes,
   4096 file descriptors; disk reads 20 MiB/s, writes 10 MiB/s. Temporary
   filesystems are bounded and charged to the container's memory limit.
-  Docker logs rotate at 2 × 5 MiB.
+  Docker logs rotate at 2 × 5 MiB. Disk throttles target the loop device and
+  are reapplied from the current mount before every service start.
 - Dedicated bridge `mc-hafsa`. Outbound public HTTP/HTTPS and DNS only;
   host addresses, private ranges, other Docker networks, metadata and IPv6
   are blocked. INPUT and DOCKER-USER both have tenant-specific rules.
@@ -97,7 +98,8 @@ only Hafsa's service, remove only its container (not storage), and rerun
 Use `node tools/testflight-status.mjs` for a read-only Apple status report using
 local configured ASC credentials. On 2026-11-18, the existing build 0.4.2 (114)
 was valid for internal testing, with external state READY_FOR_BETA_SUBMISSION;
-there was only the internal Musa Team group. That is not an external invite.
+there was only the internal Musa Team group. An empty external Hafsa group
+was subsequently created with zero testers and its public link disabled. That is not an external invite.
 
 The new app must pass macOS build/unit/onboarding UI tests, be uploaded with
 `internal_testers=false` (do not modify tester membership), and pass Apple's

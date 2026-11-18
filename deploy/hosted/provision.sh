@@ -30,6 +30,7 @@ systemctl start "$MOUNT_UNIT"
 mountpoint -q "$BASE/home"
 chown 11001:11001 "$BASE/home"
 chmod 700 "$BASE/home"
+install -m 755 "$HERE/storage-limits.py" /usr/local/sbin/musa-hafsa-storage-limits
 install -m 755 "$HERE/firewall.sh" /usr/local/sbin/musa-hafsa-firewall
 if ! docker network inspect musa-hafsa >/dev/null 2>&1; then
   docker network create --driver bridge --subnet 172.30.47.0/28 --opt com.docker.network.bridge.name=mc-hafsa --opt com.docker.network.bridge.enable_icc=false musa-hafsa >/dev/null
@@ -57,6 +58,7 @@ After=docker.service network-online.target $MOUNT_UNIT
 Type=simple
 ExecStartPre=/usr/bin/mountpoint -q $BASE/home
 ExecStartPre=/usr/local/sbin/musa-hafsa-firewall
+ExecStartPre=/usr/local/sbin/musa-hafsa-storage-limits
 ExecStart=/usr/bin/docker start -a musa-hafsa
 ExecStop=/usr/bin/docker stop -t 15 musa-hafsa
 Restart=always

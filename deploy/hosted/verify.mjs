@@ -7,6 +7,7 @@ const require = createRequire(new URL('../../server/package.json', import.meta.u
 const WebSocket = require('ws');
 const docker = (...args) => execFileSync('docker',args,{encoding:'utf8',stdio:['pipe','pipe','pipe']}).trim();
 const inside = (...args) => docker('exec','musa-hafsa',...args);
+try { fs.unlinkSync('/var/lib/musa-tenants/hafsa/security-passed'); } catch (e) { if(e.code !== 'ENOENT') throw e; }
 const base = process.env.HAFSA_TEST_URL || 'http://127.0.0.1:8171';
 const ok = (s) => console.log('PASS '+s);
 const inspect = JSON.parse(docker('inspect','musa-hafsa'))[0];
@@ -25,7 +26,7 @@ assert.equal(inside('cat','/sys/fs/cgroup/memory.max'),'1610612736');
 assert.equal(inside('cat','/sys/fs/cgroup/memory.swap.max'),'0');
 assert.equal(inside('cat','/sys/fs/cgroup/pids.max'),'256');
 assert.equal(inside('cat','/sys/fs/cgroup/cpu.max'),'100000 100000');
-assert.match(inside('cat','/sys/fs/cgroup/io.max'),/wbps=10485760/);
+assert.match(inside('cat','/sys/fs/cgroup/io.max'),/7:\d+ rbps=20971520 wbps=10485760/);
 ok('kernel enforces CPU, RAM, zero swap, PID and disk I/O limits');
 inside('sh','-c','test ! -e /home/abdul && test ! -e /var/run/docker.sock && test ! -e /root/.ssh && test ! -e /home/hafsa/.ssh');
 assert.throws(()=>inside('sh','-c','touch /etc/escape-test'));
@@ -62,6 +63,9 @@ try {
  assert.equal((await api('POST','/api/ssh/authorize',{publicKey:'invalid'},token)).status,403);
  ok('no Codex login, no API-key fallback, agent start blocked before authentication, SSH disabled');
  const wsbase=base.replace(/^http/,'ws');
+ const foreign = new WebSocket(wsbase+'/api/terminal/ws?session=foreign-origin', {headers:{Authorization:`Bearer ${token}`,Origin:'https://untrusted.example'}});
+ const denied = await new Promise((resolve,reject)=>{foreign.once('unexpected-response',(_,r)=>{r.resume();resolve(r.statusCode);foreign.terminate();});foreign.once('open',()=>{foreign.close();reject(Error('Foreign browser origin accepted'));});foreign.once('error',reject);});
+ assert.equal(denied,403);ok('cross-origin browser WebSocket rejected');
  async function terminal(marker,command) {
    const ws=new WebSocket(wsbase+'/api/terminal/ws?session=security-check&cols=120&rows=36',{headers:{Authorization:`Bearer ${token}`}});
    await new Promise((resolve,reject)=>{let text='';const timeout=setTimeout(()=>{ws.terminate();reject(Error('Terminal timeout: '+text.slice(-1200)));},10000);ws.on('error',reject);ws.on('message',d=>{text+=d; if(text.includes(marker)){clearTimeout(timeout); resolve();}});ws.on('open',()=>setTimeout(()=>ws.send(Buffer.from(command+'\r')),200));});
