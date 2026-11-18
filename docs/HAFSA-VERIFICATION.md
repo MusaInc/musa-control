@@ -59,13 +59,14 @@ onboarding, existing SSH onboarding and provider UI tests passed. The hosted
 onboarding screenshot was visually reviewed on the iPad simulator.
 
 [Release build 0.4.3](https://github.com/MusaInc/musa-control/actions/runs/44390804983)
-has passed build/unit/UI tests and is being archived/uploaded. Internal tester
-membership updates are disabled. Check `tools/testflight-status.mjs` for the
-final Apple processing and external-review state before any invitation.
+completed successfully: **0.4.3 (116)** is uploaded and Apple processing is
+**VALID**. Internal state is IN_BETA_TESTING; external state is
+**READY_FOR_BETA_SUBMISSION**. Tester membership updates were skipped.
+External review has not been submitted; no invitation was sent.
 
 ## Remaining release gates
 
-Apple processing, external Beta App Review, and a physical iPad sign-in/task
+Submission and approval of external Beta App Review, and a physical iPad sign-in/task
 with Hafsa's own subscription. Beta review must not receive access to Hafsa's
 workspace or the owner's workspace; provide a separate reviewer environment
 if Apple requires interactive access. Invite only after the build is approved.

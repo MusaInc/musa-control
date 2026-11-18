@@ -101,9 +101,10 @@ was valid for internal testing, with external state READY_FOR_BETA_SUBMISSION;
 there was only the internal Musa Team group. An empty external Hafsa group
 was subsequently created with zero testers and its public link disabled. That is not an external invite.
 
-The new app must pass macOS build/unit/onboarding UI tests, be uploaded with
-`internal_testers=false` (do not modify tester membership), and pass Apple's
-Beta App Review before Hafsa can install it as an external tester. Create an
+Build **0.4.3 (116)** passed macOS build/unit/onboarding UI tests, was uploaded
+with `internal_testers=false`, and has Apple processing state VALID. Its external
+state is READY_FOR_BETA_SUBMISSION. It must still be submitted for and pass
+Apple's Beta App Review before Hafsa can install it as an external tester. Create an
 external Hafsa group, attach the reviewed build, then invite by her email or
 an explicitly enabled public link. Do not add her as an App Store Connect team
 member. No invitation is sent by this implementation.
