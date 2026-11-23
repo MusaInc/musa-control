@@ -8,6 +8,7 @@ struct AgentLauncher: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var agent = UserDefaults.standard.string(forKey: "launcher.agent") ?? "claude"
+    @State private var geminiModel = "gemini-4-neon-high"
     @State private var project: String?
     @State private var prompt = ""
     @AppStorage("launcher.permissionMode") private var mode = "unattended"
@@ -17,6 +18,8 @@ struct AgentLauncher: View {
     @State private var errorOutput: String?
     @FocusState private var focus: Bool
     private var hosted: Bool { app.activeMachine?.kind == .direct && app.activeMachine?.isPersonal == false }
+
+    private var providerName: String { agent == "gemini" ? "Gemini" : agent == "claude" ? "Claude Code" : "Codex" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -28,6 +31,7 @@ struct AgentLauncher: View {
             Picker("Agent", selection: $agent) {
                 if !hosted { Label("Claude Code", systemImage: "sparkle").tag("claude") }
                 Label("Codex", systemImage: "terminal").tag("codex")
+                if !hosted { Label("Gemini", systemImage: "sparkles").tag("gemini") }
             }.pickerStyle(.segmented)
             // The project decides where the agent runs and what it can edit, so
             // it is never chosen silently: the last workspace is only a
@@ -36,11 +40,19 @@ struct AgentLauncher: View {
                 HStack { runsIn; Spacer(); permissions }
                 VStack(alignment: .leading, spacing: 8) { runsIn; permissions }
             }
-            TextField("What should \(agent == "claude" ? "Claude Code" : "Codex") do?", text: $prompt, axis: .vertical)
+            if agent == "gemini" {
+                Picker("Model", selection: $geminiModel) {
+                    Text("CLI default").tag("")
+                    Text("Gemini 4 Neon (High)").tag("gemini-4-neon-high")
+                    Text("Gemini 4 Neon (Medium)").tag("gemini-4-neon-medium")
+                    Text("Gemini 4 Argon (High)").tag("gemini-4-argon-high")
+                }.pickerStyle(.menu)
+            }
+            TextField("What should \(providerName) do?", text: $prompt, axis: .vertical)
                 .lineLimit(4...12).font(.system(size: 14)).focused($focus)
                 .padding(12).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("launcher.prompt")
-            Text("Keeps working when you disconnect. Unattended mode allows commands and edits across this computer without approval prompts.")
+            Text(agent == "gemini" ? "Runs in tmux. Use Open in Terminal to answer Antigravity’s permission prompts." : "Keeps working when you disconnect. Unattended mode allows commands and edits across this computer without approval prompts.")
                 .font(Theme.caption).foregroundStyle(Theme.textFaint)
             if let error {
                 VStack(alignment: .leading, spacing: 6) {
@@ -67,8 +79,8 @@ struct AgentLauncher: View {
         .padding(20).frame(minWidth: Device.isPhone ? nil : 360, idealWidth: 600)
         .frame(maxHeight: Device.isPhone ? CGFloat.infinity : nil, alignment: .top)
         .background(Theme.surface)
-        .onAppear { project = initialProject ?? app.workspaceProject; if hosted { agent = "codex" }; focus = true }
-        .onChange(of: agent) { _, a in mode = mode == "unattended" ? "unattended" : "default"; if !hosted { UserDefaults.standard.set(a, forKey: "launcher.agent") } }
+        .onAppear { project = initialProject ?? app.workspaceProject; if hosted { agent = "codex" }; if agent == "gemini" && mode == "unattended" { mode = "default" }; focus = true }
+        .onChange(of: agent) { _, a in mode = mode == "unattended" && a != "gemini" ? "unattended" : "default"; if !hosted { UserDefaults.standard.set(a, forKey: "launcher.agent") } }
     }
 
     var runsIn: some View {
@@ -80,8 +92,8 @@ struct AgentLauncher: View {
 
     var permissions: some View {
         Picker("Permissions", selection: $mode) {
-            Text("Unattended · no approvals").tag("unattended")
-            if agent == "claude" {
+            if agent != "gemini" { Text("Unattended · no approvals").tag("unattended") }
+            if agent == "claude" || agent == "gemini" {
                 Text("Ask before acting").tag("default")
                 Text("Auto-accept edits").tag("acceptEdits")
                 Text("Plan only").tag("plan")
@@ -94,12 +106,12 @@ struct AgentLauncher: View {
 
     @ViewBuilder func duplicateButtons(_ id: String) -> some View {
         Button("Open the running session") { app.openAgent(id); dismiss() }
-        Button("Start a second one anyway") { launch(allowDuplicate: true) }
+        if agent != "gemini" { Button("Start a second one anyway") { launch(allowDuplicate: true) } }
     }
 
     var startLabel: String {
         guard let p = app.project(project) else { return "Choose a project" }
-        return "Start \(agent == "claude" ? "Claude Code" : "Codex") in \(p.name)"
+        return "Start \(providerName) in \(p.name)"
     }
 
     func launch(allowDuplicate: Bool) {
@@ -108,7 +120,9 @@ struct AgentLauncher: View {
         Task {
             defer { busy = false }
             do {
-                let r = try await app.client.send("POST", "/api/agents", ["agent": agent, "project": project, "prompt": prompt, "mode": mode, "allowDuplicate": allowDuplicate], as: LaunchResult.self)
+                var body: [String: Any] = ["agent": agent, "project": project, "prompt": prompt, "mode": mode, "allowDuplicate": allowDuplicate]
+                if agent == "gemini" && !geminiModel.isEmpty { body["model"] = geminiModel }
+                let r = try await app.client.send("POST", "/api/agents", body, as: LaunchResult.self)
                 try? await Task.sleep(nanoseconds: 1_800_000_000)
                 await app.refreshAgents()
                 let target = r.sessionKey.flatMap { k in app.agents.first { $0.id == k } }?.id ?? app.agents.first { $0.tmux?.session == r.tmux }?.id

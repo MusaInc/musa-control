@@ -175,7 +175,7 @@ struct Agent: Codable, Identifiable, Hashable {
     let lastEvent: LastEvent?
 
     var isLive: Bool { ["working", "approval", "idle"].contains(status) && pid != nil }
-    var icon: String { agent == "claude" ? "sparkle" : "terminal" }
+    var icon: String { agent == "gemini" ? "sparkles" : agent == "claude" ? "sparkle" : "terminal" }
 }
 
 struct LaunchResult: Codable { let id: String; let tmux: String; let sessionKey: String? }
@@ -241,6 +241,14 @@ struct Screenshot: Codable, Identifiable, Hashable {
     let source: String
     let note: String?
     var name: String { (path as NSString).lastPathComponent }
+    var agentLabel: String? {
+        switch session?.split(separator: ":").first {
+        case "gemini": "Gemini"
+        case "codex": "Codex"
+        case "claude": "Claude"
+        default: nil
+        }
+    }
 }
 
 struct Build: Codable, Identifiable, Hashable {

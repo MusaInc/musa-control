@@ -20,13 +20,14 @@ import { run } from "./exec.js";
 import * as tmux from "./tmux.js";
 import { resolveBinary, expand } from "./config.js";
 import { shq } from "./agents.js";
+import { agyRoot } from "./antigravity.js";
 
 export const PROVIDERS = {
   claude: { id: "claude", name: "Claude Code", vendor: "Anthropic", plan: "Claude Pro or Max subscription, or an Anthropic API key", package: "@anthropic-ai/claude-code", keyEnv: "ANTHROPIC_API_KEY", keyPattern: /^sk-ant-[\w-]{20,}$/, docs: "https://docs.claude.com/en/docs/claude-code/setup" },
   codex: { id: "codex", name: "Codex", vendor: "OpenAI", plan: "ChatGPT Plus, Pro, Business or Enterprise, or an OpenAI API key", package: "@openai/codex", keyEnv: "OPENAI_API_KEY", keyPattern: /^sk-[\w-]{20,}$/, docs: "https://developers.openai.com/codex/cli" },
-  gemini: { id: "gemini", name: "Gemini CLI", vendor: "Google", plan: "Google account (free tier, Google AI Pro/Ultra) or a Gemini API key", package: "@google/gemini-cli", keyEnv: "GEMINI_API_KEY", keyPattern: /^[\w-]{30,}$/, docs: "https://github.com/google-gemini/gemini-cli" },
+  gemini: { id: "gemini", name: "Gemini · Antigravity", vendor: "Google", plan: "Google sign-in on this machine", package: null, keyEnv: "GEMINI_API_KEY", keyPattern: /^[\w-]{30,}$/, docs: "https://antigravity.google/docs/cli/reference/" },
 };
-const BIN_KEY = { claude: "claudeBinary", codex: "codexBinary", gemini: "geminiBinary" };
+const BIN_KEY = { claude: "claudeBinary", codex: "codexBinary", gemini: "antigravityBinary" };
 const LOGIN_NAME = /^mc-(login|install)-(claude|codex|gemini)-[0-9a-f]{4}$/;
 const URL_RE = /https:\/\/[^\s"'<>│]+/g;
 
@@ -50,7 +51,7 @@ export function createProviders(cfg, events) {
     // user may have installed the CLI since the companion started.
     const set = cfg[BIN_KEY[id]];
     if (set && set.includes("/")) { try { fs.accessSync(set, fs.constants.X_OK); return set; } catch {} }
-    const b = resolveBinary(path.basename(set || id));
+    const b = resolveBinary(path.basename(set || (id === "gemini" ? "agy" : id)));
     if (b.includes("/")) cfg[BIN_KEY[id]] = b;
     return b.includes("/") ? b : null;
   }
@@ -77,24 +78,15 @@ export function createProviders(cfg, events) {
       const m = text.match(/Logged in using (.+)/i);
       return { signedIn: r.code === 0 && Boolean(m), method: m ? m[1].trim().replace(/^an? /i, "") : null, detail: m ? null : text.split("\n")[0]?.slice(0, 160) || "Not signed in" };
     }
-    // Gemini: settings.json says which method was chosen; for Google sign-in
-    // the credential file must exist (only its presence is checked).
-    const dir = expand(cfg.geminiDir || "~/.gemini");
-    let selected = null;
-    try { const s = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")); selected = s.security?.auth?.selectedType || s.selectedAuthType || null; } catch {}
-    const hasOauth = fs.existsSync(path.join(dir, "oauth_creds.json"));
-    const hasKey = Boolean(process.env.GEMINI_API_KEY || readKeys().gemini);
-    if (selected === "oauth-personal" || (!selected && hasOauth)) return { signedIn: hasOauth, method: "Google account", detail: hasOauth ? null : "Google sign-in not finished" };
-    if (selected === "gemini-api-key") return { signedIn: hasKey, method: "Gemini API key", detail: hasKey ? null : "No GEMINI_API_KEY on this machine" };
-    if (selected === "vertex-ai") return { signedIn: null, method: "Vertex AI", detail: "Uses your Google Cloud configuration" };
-    return { signedIn: false, method: null, detail: "Not signed in" };
+    const hasOauth = fs.existsSync(path.join(agyRoot(cfg), "antigravity-oauth-token"));
+    return { signedIn: hasOauth, method: "Google account", detail: hasOauth ? null : "Sign in from Antigravity CLI on this machine" };
   }
 
   async function detect(id) {
     const p = PROVIDERS[id];
     const bin = binary(id);
     const keys = cfg.hosted ? {} : readKeys();
-    const key = keys[id] ? { set: true, last4: keys[id].slice(-4) } : { set: false };
+    const key = id !== "gemini" && keys[id] ? { set: true, last4: keys[id].slice(-4) } : { set: false };
     if (!bin) return { ...publicInfo(p), installed: false, version: null, auth: { signedIn: false, method: null, detail: "Not installed" }, apiKey: key };
     const [v, auth] = await Promise.all([version(bin), authOf(id, bin).catch((e) => ({ signedIn: null, detail: e.message }))]);
     if (cfg.hosted && auth.method !== "ChatGPT") { auth.signedIn = false; auth.detail = "Sign in with your own ChatGPT subscription."; }
@@ -120,6 +112,7 @@ export function createProviders(cfg, events) {
   // Runs the provider's own sign-in in a tmux session the app can show.
   async function startLogin(id, { method } = {}) {
     need(id);
+    if (id === "gemini") throw bad("Sign in using Antigravity CLI directly on this machine.", 409);
     const bin = binary(id);
     if (!bin) throw bad(`${PROVIDERS[id].name} isn't installed on this machine yet.`, 409);
     const name = `mc-login-${id}-${crypto.randomBytes(2).toString("hex")}`;
@@ -135,6 +128,7 @@ export function createProviders(cfg, events) {
 
   async function install(id) {
     const p = need(id);
+    if (id === "gemini") throw bad("Install Antigravity CLI using Google’s CLI installation instructions.", 409);
     const npm = resolveBinary("npm");
     if (!npm.includes("/")) throw bad("npm isn't installed on this machine. Install Node.js 22 first.", 409);
     const name = `mc-install-${id}-${crypto.randomBytes(2).toString("hex")}`;
@@ -178,6 +172,7 @@ export function createProviders(cfg, events) {
 
   async function setKey(id, key) {
     const p = need(id);
+    if (id === "gemini") throw bad("Antigravity uses its own Google sign-in.", 409);
     if (cfg.hosted) throw bad("Sign in with your own ChatGPT subscription. API key billing is disabled here.", 403);
     const k = String(key || "").trim();
     if (!p.keyPattern.test(k)) throw bad(`That doesn't look like a ${p.vendor} API key.`);
@@ -201,7 +196,7 @@ export function createProviders(cfg, events) {
 
   // Environment for an agent launched from the app: its saved API key, if any.
   function envFor(agent) {
-    if (cfg.hosted) return {};
+    if (cfg.hosted || agent === "gemini") return {};
     const p = PROVIDERS[agent];
     const k = p && readKeys()[agent];
     return k ? { [p.keyEnv]: k } : {};

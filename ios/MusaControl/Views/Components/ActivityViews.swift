@@ -95,7 +95,9 @@ struct FeedEntryView: View {
         switch e.kind {
         case "agent.prompt", "agent.instruction": PromptBubble(event: e)
         case "agent.message": MessageBlock(event: e, prominent: e.stableId == latestMessageId)
+        case "agent.image" where e.detail?["id"]?.number != nil: ScreenshotActivityRow(event: e)
         case "agent.image": ImageCard(event: e)
+        case "screenshot.new": ScreenshotActivityRow(event: e)
         case "agent.approval": ApprovalNote(event: e).onTapGesture { select(e) }
         case "agent.approval_answered": AnsweredNote(event: e)
         case "agent.done", "agent.stopped", "agent.ended": TurnDivider(event: e)
@@ -587,6 +589,43 @@ struct PlanCard: View {
 }
 
 // MARK: - Images
+
+struct ScreenshotActivityRow: View {
+    let event: TimelineEvent
+    @State private var open: Screenshot?
+
+    var image: Screenshot? {
+        guard let id = event.detail?["id"]?.number, let path = event.detail?["path"]?.string else { return nil }
+        return Screenshot(id: Int(id), ts: event.ts, project: event.project, session: event.session,
+                          path: path, width: event.detail?["width"]?.number.map { Int($0) },
+                          height: event.detail?["height"]?.number.map { Int($0) },
+                          bytes: nil, source: event.detail?["source"]?.string ?? "project", note: nil)
+    }
+
+    var body: some View {
+        if let image {
+            Button { open = image } label: {
+                HStack(spacing: 10) {
+                    AuthImage(path: "/api/screenshots/\(image.id)/image", query: ["w": "320"], contentMode: .fill)
+                        .frame(width: 80, height: 54).clipped()
+                        .background(Theme.raised).clipShape(RoundedRectangle(cornerRadius: 7))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(image.name).font(Theme.label).lineLimit(1).truncationMode(.middle)
+                        Text([image.agentLabel, Fmt.time(event.ts)].compactMap { $0 }.joined(separator: " · "))
+                            .font(Theme.caption).foregroundStyle(Theme.textFaint)
+                    }
+                    Spacer()
+                    Image(systemName: "arrow.up.left.and.arrow.down.right").font(Theme.caption).foregroundStyle(Theme.textDim)
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(image.name)")
+            .sheet(item: $open) { shot in ScreenshotViewer(initial: shot, all: [shot]) }
+        }
+    }
+}
 
 /// Screenshot or image the agent produced or viewed: a real thumbnail at its
 /// own aspect ratio, tap to enlarge.

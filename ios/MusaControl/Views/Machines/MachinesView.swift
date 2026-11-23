@@ -213,14 +213,18 @@ struct ProvidersPanel: View {
             if p.subscriptionOnly == true { Text("Uses only your ChatGPT subscription. If you sign out or reach your limit, work pauses until you reconnect or your allowance returns.").font(Theme.caption).foregroundStyle(Theme.textDim) }
             Text(p.plan).font(Theme.caption).foregroundStyle(Theme.textFaint).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                if !p.installed {
+                if p.id == "gemini" {
+                    if !p.installed || p.auth.signedIn != true, let docs = p.docs, let url = URL(string: docs) {
+                        Link(p.installed ? "Sign-in instructions" : "Install Antigravity CLI", destination: url).buttonStyle(.bordered)
+                    }
+                } else if !p.installed {
                     Button("Install…") { installFor = p }.buttonStyle(.borderedProminent)
                 } else if p.auth.signedIn != true {
                     Button("Sign in") { Task { await startLogin(p) } }.buttonStyle(.borderedProminent).accessibilityIdentifier("provider.signin.\(p.id)")
                 } else {
                     Button("Sign in again") { Task { await startLogin(p) } }.buttonStyle(.bordered)
                 }
-                if p.subscriptionOnly != true {
+                if p.subscriptionOnly != true && p.id != "gemini" {
                 Button(p.apiKey.set ? "API key ··\(p.apiKey.last4 ?? "")" : "Use API key") { keyFor = p }.buttonStyle(.bordered).disabled(!p.installed && p.id == "codex")
                 }
             }

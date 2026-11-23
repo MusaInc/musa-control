@@ -19,12 +19,13 @@ import * as tmux from "./tmux.js";
 import { parsePrompt, keysFor } from "./prompts.js";
 import { parseClaudeLine, parseCodexLine, parseGeminiLine } from "./transcripts.js";
 import { run } from "./exec.js";
-import { expand } from "./config.js";
+import { expand, resolveBinary } from "./config.js";
+import { agyArgs, agyRoot, agyConversations, agyWorkspaceConversation, agyModel, agySteps, createAgyImages, clean } from "./antigravity.js";
 
 export const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 export const AGENTS = ["claude", "codex", "gemini"];
 const PARSERS = { claude: parseClaudeLine, codex: parseCodexLine, gemini: parseGeminiLine };
-export const agentName = (a) => ({ claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI" })[a] || a;
+export const agentName = (a) => ({ claude: "Claude Code", codex: "Codex", gemini: "Gemini · Antigravity" })[a] || a;
 const DAY = 86400_000;
 const SIZE = { w: 180, h: 50 }; // managed agent windows when no client is attached
 
@@ -34,6 +35,9 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   const offsets = db.get("transcript-offsets", {});
   const managedRows = () => db.raw.prepare("SELECT * FROM managed_agents WHERE ended_at IS NULL").all();
   const claudeDir = expand(cfg.claudeProjectsDir), codexDir = expand(cfg.codexSessionsDir), geminiDir = expand(cfg.geminiDir || "~/.gemini");
+  const antigravityRoot = agyRoot({ ...cfg, geminiDir: geminiDir });
+  const scanAgyImages = createAgyImages(antigravityRoot, screenshots);
+  let agyPolling = false;
   let procs = [];   // live agent processes
   let panes = [];
   let timer = null, procTimer = null, promptTimer = null, saving = 0;
@@ -191,12 +195,67 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       kind: ev.kind, project, session: s.key, ts: ev.ts, title: ev.title,
       detail: { ...ev.detail, agent: s.agent, follow: ev.follow || null, sessionTitle: s.title },
       persist: ev.persist !== false, dedupe: `${s.key}:${ev.key}`,
-      notify: !quiet && (ev.kind === "agent.error" || long),
+      notify: !quiet && (ev.kind === "agent.error" || ev.kind === "agent.command_failed" && s.antigravity || long),
     });
+  }
+
+  async function pollAgy() {
+    if (cfg.hosted || agyPolling) return;
+    agyPolling = true;
+    try {
+      for (const row of agyConversations(antigravityRoot, Date.now() - 2 * DAY)) {
+        const project = projects.forPath(row.cwd);
+        if (!project) continue;
+        const key = `gemini:${row.id}`;
+        let s = sessions.get(key);
+        const first = !s?.antigravity;
+        if (!s) {
+          s = { key, agent: "gemini", sessionId: row.id, cwd: row.cwd, project: project.id,
+            counts: { edits: 0, commands: 0, images: 0, errors: 0 }, activityLines: [] };
+          sessions.set(key, s);
+        }
+        s.antigravity = true;
+        s.activityLines ||= [];
+        s.title = row.title || s.title;
+        s.lastActivity = row.activity;
+        s.turn = row.running ? "working" : "idle";
+        if (!first && s.agyRunning && !row.running) record(s, {
+          kind: row.failed ? "agent.error" : "agent.done", key: `agy:turn:${row.activity}`,
+          title: row.failed ? "Antigravity reported an error" : "Antigravity finished the turn",
+          ts: row.activity, detail: {}
+        }, { quiet: false });
+        s.agyRunning = row.running;
+        for (const step of agySteps(antigravityRoot, row.id, s.agyStep ?? -1)) {
+          s.agyStep = step.index;
+          const ts = row.activity;
+          const label = step.description || step.tool.replaceAll("_", " ");
+          const rel = typeof step.file === "string" ? path.resolve(row.cwd, step.file) : null;
+          const safeFile = rel && projects.forPath(rel)?.id === project.id && !projects.isSecret(rel) ? rel : null;
+          const edit = safeFile && /^(?:write_file|replace_file_content|multi_replace_file_content|edit_file|apply_patch|delete_file)$/.test(step.tool);
+          const detail = step.command ? { command: step.command, cwd: row.cwd, output: step.output, description: label, ok: !step.failed }
+            : { tool: step.tool, ...(safeFile ? { path: safeFile } : {}) };
+          if (edit) {
+            watcher?.attribute(project.id, path.relative(project.path, safeFile), key);
+            if (!first) watcher?.refresh?.(project.id, safeFile).catch(() => {});
+          }
+          const kind = step.command ? (step.failed ? "agent.command_failed" : "agent.command_done") : edit ? "agent.edit" : "agent.tool";
+          record(s, { kind, key: `agy:${step.index}`, ts, title: step.command ? label === "run command" ? step.command : label : safeFile ? `${label} ${path.basename(safeFile)}` : label,
+            detail, follow: step.command ? { view: "terminal" } : edit ? { view: "editor", path: safeFile } : null }, { quiet: first });
+          if (step.command) {
+            s.activityLines.push(`$ ${step.command}${step.output ? "\n" + step.output : ""}`);
+            if (s.activityLines.length > 40) s.activityLines.shift();
+          }
+        }
+        if (row.running || Date.now() - row.activity < 45 * 60_000) {
+          await scanAgyImages(s).catch(() => {});
+        }
+      }
+    } finally { agyPolling = false; }
   }
 
   async function pollTranscripts() {
     try {
+      await pollAgy();
       const list = await listTranscripts();
       for (const f of list) await tail(f).catch((e) => console.error("tail", f.file, e.message));
     } catch (e) { console.error("transcripts", e); }
@@ -210,6 +269,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       const t = args.split(/\s+/);
       const first = path.basename(t[0] || "");
       if (/^(claude|codex|gemini)$/.test(first)) return first;
+      if (!cfg.hosted && /^(agy|antigravity)$/.test(first)) return "gemini";
       if (/^(node|bun|bash|sh)$/.test(first) && t[1] && /\/(claude|codex|gemini)(\.js)?$|^(claude|codex|gemini)$|gemini-cli\/(bundle|dist)\/(gemini|index)\.js$/.test(t[1])) return t[1].match(/(claude|codex|gemini)/)[1];
       if (/\/codex\/codex$|codex-linux|codex-x86_64/.test(t[0])) return "codex";
       return null;
@@ -224,8 +284,11 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       const cwd = await cwdOf(p.pid);
       const ancestors = [];
       for (let a = table.get(p.ppid), n = 0; a && n < 15; a = table.get(a.ppid), n++) ancestors.push(a.pid);
-      const explicit = p.args.match(/--(?:resume|session-id)[ =]([0-9a-f-]{36})/) || p.args.match(/\bresume\s+([0-9a-f-]{36})/);
-      agents.push({ pid: p.pid, agent: kind, args: p.args, cwd, started: p.started, ancestors, sessionId: explicit?.[1] || null,
+      const agy = kind === "gemini" && /^(agy|antigravity)$/.test(path.basename(p.args.split(/\s+/)[0]));
+      if (agy && /^(?:(?:\S+\/)?(?:agy|antigravity))\s+(?:models?|agents?|remote-control|update|help|mcp|plugins?)\b/.test(p.args)) continue;
+      const explicit = p.args.match(/--conversation[ =]([0-9a-f-]{36})/) || p.args.match(/--(?:resume|session-id)[ =]([0-9a-f-]{36})/) || p.args.match(/\bresume\s+([0-9a-f-]{36})/);
+      agents.push({ pid: p.pid, agent: kind, args: p.args, cwd, started: p.started, ancestors, sessionId: explicit?.[1] || (agy ? agyWorkspaceConversation(antigravityRoot, cwd) : null),
+        agy, model: agy ? agyModel(antigravityRoot, p.pid, p.args) : null,
         print: / (-p|--print|exec)( |$)/.test(p.args) });
     }
     procs = agents;
@@ -240,7 +303,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     const ordered = [...procs].sort((a, b) => (b.sessionId ? 1 : 0) - (a.sessionId ? 1 : 0));
     for (const p of ordered) {
       let s = p.sessionId ? sessions.get(`${p.agent}:${p.sessionId}`) : null;
-      if (!s) {
+      if (!s && !p.agy) {
         // Most recently active unclaimed transcript of this agent in the same cwd.
         s = [...sessions.values()].filter((x) => x.agent === p.agent && x.cwd === p.cwd && !claimed.has(x.key) && x.lastActivity >= p.started - 60_000)
           .sort((a, b) => b.lastActivity - a.lastActivity)[0] || null;
@@ -253,6 +316,9 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
           lastActivity: p.started, startedAt: p.started, counts: { edits: 0, commands: 0, images: 0, errors: 0 }, turn: "idle", pending: true };
         sessions.set(key, s);
       }
+      if (claimed.has(s.key)) continue;
+      if (p.agy) { s.antigravity = true; s.model = p.model || s.model; }
+      if (p.agy && s.project) watcher?.activate(s.project).catch(() => {});
       claimed.add(s.key);
       s.pid = p.pid; s.mode = p.print ? "headless" : "interactive"; s.startedAt = s.startedAt || p.started;
       if (pane) s.tmux = { session: pane.session, pane: pane.id, target: pane.id };
@@ -270,6 +336,9 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   async function pollPrompts() {
     for (const s of sessions.values()) {
       if (!s.tmux) { prompts.delete(s.key); continue; }
+      // Antigravity approvals stay in its terminal. These parser key sequences
+      // were verified only for Claude Code and Codex.
+      if (s.antigravity) continue;
       const screen = await tmux.capture(s.tmux.target, { lines: 70 });
       const p = parsePrompt(screen);
       const prev = prompts.get(s.key);
@@ -293,6 +362,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     if (p) return { status: "approval", text: p.question };
     const recent = Date.now() - (s.lastActivity || 0) < 10 * 60_000;
     if (s.pid) {
+      if (s.antigravity && s.turn === "working") return { status: "working", text: s.lastEvent?.title || "Working in Antigravity" };
       if (s.turn === "working" && recent) return { status: "working", text: s.lastEvent?.title || "Working" };
       return { status: "idle", text: "Waiting for instructions" };
     }
@@ -309,6 +379,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       lastPrompt: s.lastPrompt?.slice(0, 20000) || null, lastMessage: s.lastMessage?.slice(0, 20000) || null, status: st.status, statusText: st.text,
       lastActivity: s.lastActivity, startedAt: s.startedAt || null, model: s.model || null, pid: s.pid || null, mode: s.mode || null,
       tmux: s.tmux ? { session: s.tmux.session, target: s.tmux.target } : null, managed: s.managed || null, controllable: Boolean(s.tmux),
+      activityOnly: Boolean(s.antigravity && !s.tmux),
       approval: prompts.get(s.key) || null, counts: s.counts, lastEvent: s.lastEvent || null,
     };
   }
@@ -341,6 +412,14 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     const dup = list({ includeEnded: false }).find((v) => v.project === p.id && v.agent === agent && ["working", "approval", "idle"].includes(v.status) && v.pid);
     if (dup && !allowDuplicate && !resume) throw Object.assign(new Error(`${agentName(agent)} is already running in ${p.name}. Open it, or confirm a second session.`), { status: 409, body: { duplicate: dup.id } });
     if (resume && list().some((v) => v.sessionId === resume && v.pid)) throw Object.assign(new Error("That session is already open in a running process."), { status: 409 });
+    const agy = agent === "gemini" ? resolveBinary(cfg.antigravityBinary || "agy") : null;
+    if (agy && !agy.includes("/")) throw Object.assign(new Error("Install Antigravity CLI (agy) on this machine first."), { status: 409 });
+    if (agy && mode === "unattended") throw Object.assign(new Error("Choose an interactive Antigravity permission mode."), { status: 400 });
+    if (agy && resume && !list().some((v) => v.agent === "gemini" && v.project === p.id && v.sessionId === resume))
+      throw Object.assign(new Error("That Antigravity conversation does not belong to this project."), { status: 409 });
+    const conflict = list({ includeEnded: false }).find((v) => v.project === p.id && v.pid && (v.agent === "gemini" || agy));
+    if (conflict && mode !== "plan" && mode !== "read-only")
+      throw Object.assign(new Error("An agent is already using this workspace. Open that session or start in a separate checkout."), { status: 409, body: { duplicate: conflict.id } });
     const id = crypto.randomUUID();
     const name = `mc-${agent}-${p.id.slice(0, 24)}-${id.slice(0, 4)}`;
     let cmd;
@@ -353,12 +432,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       if (prompt && !resume) args.push("--", prompt);
       cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");
     } else if (agent === "gemini") {
-      const args = [cfg.geminiBinary];
-      if (resume) args.push("--resume", resume); else args.push("--session-id", id);
-      args.push("--approval-mode", { acceptEdits: "auto_edit", plan: "plan", unattended: "yolo" }[mode] || "default");
-      if (model) args.push("-m", model);
-      if (prompt && !resume) args.push("-i", prompt);
-      cmd = args.map((a, i) => (i === 0 ? a : shq(a))).join(" ");
+      cmd = [agy, ...agyArgs({ resume, mode, model, prompt })].map(shq).join(" ");
     } else {
       const args = [cfg.codexBinary];
       if (resume) args.push("resume", resume);
@@ -370,13 +444,13 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     }
     // A login shell for the user's profile; binaries are absolute (config.js)
     // and PATH is passed through, so nvm-installed agents are found.
-    const binDir = path.dirname({ claude: cfg.claudeBinary, codex: cfg.codexBinary, gemini: cfg.geminiBinary }[agent]);
+    const binDir = path.dirname({ claude: cfg.claudeBinary, codex: cfg.codexBinary, gemini: agy }[agent]);
     const env = { PATH: [binDir, process.env.PATH].filter(Boolean).join(":") };
     // Optional API keys the user saved on this machine (providers.js); the
     // agent's own sign-in is used when there are none.
     // They go through a 0600 file the shell reads and deletes, never through
     // command-line arguments other local users could see in `ps`.
-    const keyEnv = providerEnv ? providerEnv(agent) : {};
+    const keyEnv = providerEnv && !agy ? providerEnv(agent) : {};
     let pre = "";
     if (Object.keys(keyEnv).length) {
       const dir = path.join(cfg.dataDir, "run");
@@ -387,7 +461,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     }
     await tmux.newSession(name, p.path, `bash -lc ${shq(`${pre}export PATH=${shq(env.PATH)}:"$PATH"; exec ${cmd}`)}`, { width: SIZE.w, height: SIZE.h });
     db.raw.prepare("INSERT INTO managed_agents(id,agent,project,cwd,tmux,session_id,created_at,title) VALUES(?,?,?,?,?,?,?,?)")
-      .run(id, agent, p.id, p.path, name, agent === "codex" ? resume : (resume || id), Date.now(), prompt.slice(0, 200) || null);
+      .run(id, agent, p.id, p.path, name, agent === "claude" ? (resume || id) : resume, Date.now(), prompt.slice(0, 200) || null);
     // An agent that dies at once (not installed, bad flag, auth expired) used
     // to vanish silently. Watch it briefly and report what it printed.
     const failure = await startupFailure(name);
@@ -397,7 +471,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       events.emit({ kind: "agent.error", project: p.id, session: null, title: `${agentName(agent)} didn't start in ${p.name}`, detail: { output: failure.output, exitCode: failure.status, tmux: name }, notify: false });
       throw Object.assign(new Error(`${agentName(agent)} exited straight away${failure.status != null ? ` (exit ${failure.status})` : ""}: ${failure.output.split("\n").filter(Boolean).slice(-3).join(" · ") || "no output"}`), { status: 502, body: { output: failure.output } });
     }
-    const known = agent === "codex" ? null : `${agent}:${resume || id}`;
+    const known = resume || agent === "claude" ? `${agent}:${resume || id}` : null;
     events.emit({ kind: "agent.started", project: p.id, session: known, title: `Started ${agentName(agent)} in ${p.name}${resume ? " (resumed)" : ""}`, detail: { tmux: name, prompt: prompt.slice(0, 2000), mode } });
     watcher?.activate(p.id).catch(() => {});
     setTimeout(() => pollProcesses().catch(() => {}), 1500);
@@ -415,7 +489,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
 
   async function answer(id, { signature, option, via = null }) {
     const s = get(id);
-    if (!s.tmux) throw Object.assign(new Error("Not controllable"), { status: 409 });
+    if (!s.tmux || s.antigravity) throw Object.assign(new Error("Use the agent terminal to answer this prompt."), { status: 409 });
     const screen = await tmux.capture(s.tmux.target, { lines: 70 });
     const p = parsePrompt(screen);
     if (!p || p.signature !== signature) throw Object.assign(new Error("That prompt is no longer on screen. Refresh and check again."), { status: 409 });
@@ -480,6 +554,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
 
   async function screen(id, { ansi = true, lines = 200 } = {}) {
     const s = get(id);
+    if (!s.tmux && s.antigravity) return { text: clean((s.activityLines || []).join("\n\n"), 48000), controllable: false, activityOnly: true };
     if (!s.tmux) return { text: null, controllable: false };
     return { text: await tmux.capture(s.tmux.target, { ansi, lines }), controllable: true, tmux: s.tmux.session };
   }

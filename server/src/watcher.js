@@ -57,16 +57,18 @@ export function createWatcher(cfg, db, projects, events, screenshots) {
     const rel = path.relative(project.path, full);
     if (!rel || rel.startsWith("..") || rel.split("/").some((s) => ignored.has(s)) || projects.isSecret(rel)) return;
     if (/\.mc-\d+-\d+\.tmp$|~$|\.swp$|\.tmp$/.test(rel)) return;
+    const a = attribution.get(`${project.id}:${rel}`);
+    const session = a && a.until > Date.now() ? a.session : null;
     let st;
     try { st = await fsp.stat(full); } catch {
       const prev = lastRev.get(project.id, rel);
-      if (prev) events.emit({ kind: "file.changed", project: project.id, title: `Deleted ${rel}`, detail: { path: rel, change: "delete" } });
+      if (prev || session) events.emit({ kind: "file.changed", project: project.id, session, title: `Deleted ${rel}`, detail: { path: rel, change: "delete" } });
       return;
     }
-    if (st.isDirectory()) { await walk(state, project, full); return; }
-    if (isImage(rel)) { await screenshots.consider(full, { project: project.id, source: "project" }); return; }
-    if (st.size > cfg.watch.textLimitBytes) {
-      events.emit({ kind: "file.changed", project: project.id, title: `Changed ${rel}`, detail: { path: rel, change: "update", size: st.size, large: true }, persist: false });
+    if (st.isDirectory()) { if (state) await walk(state, project, full); return; }
+    if (isImage(rel)) { await screenshots.consider(full, { project: project.id, source: session ? "agent" : "project", session }); return; }
+    if (st.size > cfg.watch.textLimitBytes || /\.(?:blend1?|glb|fbx|gltf|ogg|wav)$/i.test(rel)) {
+      events.emit({ kind: "file.changed", project: project.id, session, title: `Changed ${rel}`, detail: { path: rel, change: "update", size: st.size, large: true }, persist: false });
       return;
     }
     const buf = await fsp.readFile(full).catch(() => null);
@@ -82,8 +84,6 @@ export function createWatcher(cfg, db, projects, events, screenshots) {
     }
     // First sighting of a file: no earlier snapshot, so counts stay unknown
     // (the client compares against git HEAD instead).
-    const a = attribution.get(`${project.id}:${rel}`);
-    const session = a && a.until > Date.now() ? a.session : null;
     const r = insertRev.run(project.id, rel, Date.now(), s, buf.length, zlib.gzipSync(buf), session ? "agent" : "disk", session, added, removed);
     events.emit({
       kind: "file.changed", project: project.id, session,
@@ -141,5 +141,6 @@ export function createWatcher(cfg, db, projects, events, screenshots) {
   function status() { return [...active.entries()].map(([id, s]) => ({ project: id, dirs: s.watchers.size, until: s.until })); }
   function close() { clearInterval(sweep); for (const id of [...active.keys()]) deactivate(id); }
 
-  return { activate, deactivate, status, revisions, recentRevisions, revisionContent, attribute, close, _handle: handle };
+  return { activate, deactivate, status, revisions, recentRevisions, revisionContent, attribute, close,
+    refresh: (id, full) => handle(active.get(id), projects.get(id), full), _handle: handle };
 }

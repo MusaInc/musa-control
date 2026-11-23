@@ -3,8 +3,8 @@ import SwiftUI
 private typealias M = StudioMetrics
 
 extension Agent {
-    var tint: Color { agent == "claude" ? Theme.accent : Theme.blue }
-    var shortName: String { agent == "claude" ? "Claude" : "Codex" }
+    var tint: Color { agent == "gemini" ? .purple : agent == "claude" ? Theme.accent : Theme.blue }
+    var shortName: String { agent == "gemini" ? "Gemini" : agent == "claude" ? "Claude" : "Codex" }
 }
 
 /// An agent's live desk: tap an agent in the sidebar to watch it work.
@@ -994,12 +994,12 @@ struct AgentAvatar: View {
     var size: CGFloat = 28
     @State private var spin = false
 
-    var tint: Color { kind == "claude" ? Theme.accent : Theme.blue }
+    var tint: Color { kind == "gemini" ? .purple : kind == "claude" ? Theme.accent : Theme.blue }
 
     var body: some View {
         ZStack {
             Circle().fill(tint.opacity(0.16))
-            Image(systemName: kind == "claude" ? "sparkle" : "terminal")
+            Image(systemName: kind == "gemini" ? "sparkles" : kind == "claude" ? "sparkle" : "terminal")
                 .font(.system(size: size * 0.44, weight: .semibold))
                 .foregroundStyle(tint)
                 .symbolEffect(.pulse, isActive: status == "working")

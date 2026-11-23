@@ -307,7 +307,11 @@ export function createServer(overrides = {}) {
   route("POST", "/api/agents", ({ body }) => agents.launch(body));
   route("GET", "/api/agents/:id", ({ params }) => agents.get(decodeURIComponent(params.id)));
   route("GET", "/api/agents/:id/screen", ({ params, q }) => agents.screen(decodeURIComponent(params.id), { ansi: q.get("ansi") !== "0", lines: Math.min(+q.get("lines") || 200, 3000) }));
-  route("GET", "/api/agents/:id/timeline", ({ params, q }) => events.query({ session: decodeURIComponent(params.id), before: q.get("before"), after: q.get("after"), limit: q.get("limit") || 300 }));
+  route("GET", "/api/agents/:id/timeline", ({ params, q }) => events.query({
+    session: decodeURIComponent(params.id), before: q.get("before"), after: q.get("after"), limit: q.get("limit") || 300,
+  }).map((event) => event.kind === "screenshot.new" && event.detail.source === "antigravity"
+    ? { ...event, kind: "agent.image" }
+    : event));
   route("POST", "/api/agents/:id/send", ({ params, body }) => agents.send(decodeURIComponent(params.id), String(body.text || "")));
   route("POST", "/api/agents/:id/approval", ({ params, body }) => agents.answer(decodeURIComponent(params.id), body));
   route("POST", "/api/agents/:id/interrupt", ({ params }) => agents.interrupt(decodeURIComponent(params.id)));
@@ -341,7 +345,7 @@ export function createServer(overrides = {}) {
   route("GET", "/api/screenshots", ({ q }) => screenshots.list({ project: q.get("project"), session: q.get("session"), limit: Math.min(+q.get("limit") || 100, 500), before: q.get("before") }));
   route("GET", "/api/screenshots/:id/image", async ({ params, q, req, res }) => {
     const s = screenshots.get(params.id);
-    if (!s || !fs.existsSync(s.path)) throw Object.assign(new Error("Screenshot gone"), { status: 404 });
+    if (!s || await fsp.realpath(s.path).catch(() => null) !== s.path) throw Object.assign(new Error("Screenshot gone"), { status: 404 });
     const w = +q.get("w");
     if (w) await sendFile(req, res, await files.thumbnail(s.path, Math.min(w, 1600)), { mime: "image/jpeg", cache: "private, max-age=3600" });
     else await sendFile(req, res, s.path, { cache: "private, max-age=300" });

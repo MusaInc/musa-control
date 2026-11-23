@@ -3,6 +3,7 @@
 // itself captured/viewed in its transcript (Codex ImageView, Claude Read of
 // an image, a screenshot command's output file). Nothing else on disk is
 // collected, so unrelated private images never reach the app.
+import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { isImage } from "./files.js";
@@ -10,7 +11,7 @@ import { run } from "./exec.js";
 
 export function createScreenshots(cfg, db, projects, events) {
   const insert = db.raw.prepare("INSERT OR IGNORE INTO screenshots(ts,project,session,path,width,height,bytes,source) VALUES(?,?,?,?,?,?,?,?)");
-  const update = db.raw.prepare("UPDATE screenshots SET ts=?, bytes=?, width=?, height=? WHERE path=?");
+  const update = db.raw.prepare("UPDATE screenshots SET ts=?, bytes=?, width=?, height=?, session=COALESCE(?,session), source=CASE WHEN ? IS NULL THEN source ELSE ? END WHERE path=?");
   const byPath = db.raw.prepare("SELECT * FROM screenshots WHERE path=?");
   const allowedRoots = [cfg.home, "/tmp", "/srv"];
 
@@ -20,7 +21,7 @@ export function createScreenshots(cfg, db, projects, events) {
     return { width: w || null, height: h || null };
   }
 
-  async function consider(full, { project = null, session = null, source = "project" } = {}) {
+  async function consider(full, { project = null, session = null, source = "project", ts = null, requireDimensions = false } = {}) {
     if (!full || !isImage(full)) return null;
     const real = await fsp.realpath(full).catch(() => null);
     if (!real || !allowedRoots.some((r) => real.startsWith(r + "/"))) return null;
@@ -30,17 +31,17 @@ export function createScreenshots(cfg, db, projects, events) {
     if (!st || !st.isFile() || st.size < 2000 || st.size > 60 * 1024 * 1024) return null;
     const proj = project || projects.forPath(real)?.id || null;
     const prev = byPath.get(real);
+    if (prev && prev.ts === (ts ?? st.mtimeMs) && prev.bytes === st.size && (!session || session === prev.session)) return prev;
     const d = await dims(real);
-    if (d.width && d.width < 64) return null; // icons, favicons, sprites
+    if ((requireDimensions && (!d.width || !d.height)) || (d.width && d.width < 64)) return null; // icons, favicons, sprites
     if (prev) {
-      if (Math.abs(prev.ts - st.mtimeMs) < 1000 && prev.bytes === st.size) return prev;
-      update.run(Date.now(), st.size, d.width, d.height, real);
+      update.run(ts ?? st.mtimeMs, st.size, d.width, d.height, session, session, source, real);
     } else {
-      insert.run(Date.now(), proj, session, real, d.width, d.height, st.size, source);
+      insert.run(ts ?? st.mtimeMs, proj, session, real, d.width, d.height, st.size, source);
     }
     const row = byPath.get(real);
     events.emit({
-      kind: "screenshot.new", project: proj, session, title: `${prev ? "Updated" : "New"} image ${path.basename(real)}`,
+      kind: "screenshot.new", project: proj, session, ts: row.ts, title: `${prev ? "Updated" : "New"} image ${path.basename(real)}`,
       detail: { id: row.id, path: real, width: d.width, height: d.height, source, rel: proj ? path.relative(projects.get(proj).path, real) : null },
       dedupe: `shot:${row.id}:${Math.round(st.mtimeMs)}`,
     });
@@ -52,7 +53,9 @@ export function createScreenshots(cfg, db, projects, events) {
     if (project) { where.push("project=?"); args.push(project); }
     if (session) { where.push("session=?"); args.push(session); }
     if (before) { where.push("id<?"); args.push(Number(before)); }
-    return db.raw.prepare(`SELECT * FROM screenshots ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY ts DESC LIMIT ?`).all(...args, Math.min(limit, 500));
+    return db.raw.prepare(`SELECT * FROM screenshots ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY ts DESC LIMIT ?`).all(...args, Math.min(limit, 500)).filter((row) => {
+      try { return fs.realpathSync(row.path) === row.path && fs.statSync(row.path).isFile(); } catch { return false; }
+    });
   }
 
   function get(id) { return db.raw.prepare("SELECT * FROM screenshots WHERE id=?").get(Number(id)); }

@@ -177,7 +177,7 @@ struct ScreenshotGallery: View {
                             HStack(spacing: 4) {
                                 Text(app.project(s.project)?.name ?? "—")
                                 Text("·"); Text(Fmt.ago(s.ts))
-                                if s.source == "agent" { Image(systemName: "sparkles") }
+                                if let agent = s.agentLabel { Label(agent, systemImage: "sparkles") }
                                 if let w = s.width, let h = s.height { Spacer(); Text("\(w)×\(h)") }
                             }
                             .font(.system(size: 11.5)).foregroundStyle(Theme.textFaint)
@@ -234,6 +234,7 @@ struct ScreenshotViewer: View {
     @State private var sendTo: String?
     @State private var status: String?
     @State private var image: UIImage?
+    @State private var loadFailed = false
 
     var shot: Screenshot { current ?? initial }
     var index: Int { all.firstIndex(of: shot) ?? 0 }
@@ -243,7 +244,7 @@ struct ScreenshotViewer: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(shot.name).font(Theme.title).lineLimit(1)
-                    Text("\(app.project(shot.project)?.name ?? "—") · \(Fmt.time(shot.ts)) · \(shot.width ?? 0)×\(shot.height ?? 0) · \(shot.source)").font(Theme.caption).foregroundStyle(Theme.textDim)
+                    Text("\(app.project(shot.project)?.name ?? "—") · \(Fmt.time(shot.ts)) · \(shot.width ?? 0)×\(shot.height ?? 0) · \(shot.agentLabel ?? shot.source)").font(Theme.caption).foregroundStyle(Theme.textDim)
                 }
                 Spacer()
                 IconButton(systemName: "chevron.left", help: "Newer") { if index > 0 { current = all[index - 1] } }.keyboardShortcut(.leftArrow, modifiers: [])
@@ -260,6 +261,8 @@ struct ScreenshotViewer: View {
                         Image(uiImage: image).resizable().aspectRatio(contentMode: .fit)
                             .overlay(CanvasRepresentable(canvas: canvas))
                     } else { ZoomableImage(image: image) }
+                } else if loadFailed {
+                    Text("Image unavailable").foregroundStyle(.white)
                 } else { ProgressView() }
             }
             HStack(spacing: 8) {
@@ -277,7 +280,15 @@ struct ScreenshotViewer: View {
             if let status { Text(status).font(Theme.caption).foregroundStyle(Theme.textDim).padding(.bottom, 6) }
         }
         .background(Theme.bg)
-        .task(id: shot.id) { image = nil; canvas.drawing = PKDrawing(); image = await ImageCache.shared.image(client: app.client, path: "/api/screenshots/\(shot.id)/image", query: [:]) }
+        .task(id: shot.id) {
+            image = nil
+            loadFailed = false
+            canvas.drawing = PKDrawing()
+            let loaded = await ImageCache.shared.image(client: app.client, path: "/api/screenshots/\(shot.id)/image", query: [:])
+            guard !Task.isCancelled else { return }
+            image = loaded
+            loadFailed = loaded == nil
+        }
     }
 
     func annotatedPNG() -> String? {

@@ -65,6 +65,7 @@ const defaults = {
   claudeBinary: "claude",
   codexBinary: "codex",
   geminiBinary: "gemini",
+  antigravityBinary: "agy",
   geminiDir: "~/.gemini",
   maxManagedAgents: 6,
   watch: { maxProjects: 6, maxDirsPerProject: 5000, textLimitBytes: 600_000, idleMinutes: 30 },

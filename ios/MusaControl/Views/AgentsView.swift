@@ -131,7 +131,7 @@ struct AgentDetail: View {
     var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: agent.icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(agent.agent == "claude" ? Theme.accent : Theme.blue)
+                Image(systemName: agent.icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(agent.agent == "gemini" ? Color.purple : agent.agent == "claude" ? Theme.accent : Theme.blue)
                     .frame(width: 36, height: 36).background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -141,6 +141,12 @@ struct AgentDetail: View {
                         }
                         Text(agent.agentName).font(.system(size: 12.5)).foregroundStyle(Theme.textDim)
                         if let m = agent.model { Text(m).font(.system(size: 12)).foregroundStyle(Theme.textFaint).lineLimit(1) }
+                    }
+                    if agent.agent == "gemini" {
+                        if let cwd = agent.cwd { Text(cwd).font(Theme.caption).foregroundStyle(Theme.textFaint).lineLimit(1).truncationMode(.middle) }
+                        if let started = agent.startedAt, agent.isLive {
+                            Text(Date(timeIntervalSince1970: started / 1000), style: .timer).font(Theme.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
+                        }
                     }
                     Text(agent.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
                         .lineLimit(titleExpanded ? 6 : 2).fixedSize(horizontal: false, vertical: true)
@@ -199,7 +205,7 @@ struct AgentDetail: View {
             if let t = agent.tmux?.session { Button { app.attachTerminal(t) } label: { Label("Open in Terminal", systemImage: "terminal") } }
             Button { app.followAgent = agent.id; app.followPaused = false; app.go(.visuals) } label: { Label("Follow in Visuals", systemImage: "scope") }
             if let p = agent.project { Button { app.openWorkspace(p) } label: { Label("Open workspace", systemImage: "rectangle.split.3x1") } }
-            if agent.status == "ended", let sid = agent.sessionId, let p = agent.project {
+            if !agent.isLive, let sid = agent.sessionId, let p = agent.project {
                 Button { act { _ = try await app.client.send("POST", "/api/agents", ["agent": agent.agent, "project": p, "resume": sid], as: LaunchResult.self) } } label: { Label("Resume session", systemImage: "arrow.clockwise") }
             }
             Button { UIPasteboard.general.string = agent.sessionId } label: { Label("Copy session id", systemImage: "doc.on.doc") }
@@ -294,7 +300,13 @@ struct AgentScreen: View {
 
     var body: some View {
         Group {
-            if !controllable {
+            if !controllable && agent.agent == "gemini", let text, !text.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Recorded command activity · read-only", systemImage: "eye")
+                        .font(Theme.caption).foregroundStyle(Theme.textDim)
+                    ScreenMirror(text: text)
+                }
+            } else if !controllable {
                 EmptyNote(icon: "eye.slash", text: "Not running in tmux", detail: "This session was started outside tmux (e.g. VS Code or a plain terminal), so its screen can't be mirrored. Its activity is still recorded from the transcript.")
             } else if let text {
                 ScreenMirror(text: text)
