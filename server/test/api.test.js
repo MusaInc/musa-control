@@ -41,7 +41,7 @@ exit 3
   const hashFile = path.join(tmp, "hash"); fs.writeFileSync(hashFile, bcrypt.hashSync("correct horse", 4));
   app = createServer({ port: PORT, dataDir: path.join(tmp, "data"), passwordHashFile: hashFile, roots: [{ path: root, depth: 1, requireGit: false }], extra: [], exclude: [],
     claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"], authorizedKeysFile: path.join(tmp, "authorized_keys"),
-    claudeBinary: failing, codexBinary: failing, geminiBinary: failing, apnsConfigFile: path.join(tmp, "no-apns.json"), apnsTransport: async (m) => { pushes.push({ ...m, payload: JSON.parse(m.body) }); return { status: 200 }; } });
+    claudeBinary: failing, codexBinary: failing, antigravityBinary: failing, geminiDir: path.join(tmp, "gemini"), apnsConfigFile: path.join(tmp, "no-apns.json"), apnsTransport: async (m) => { pushes.push({ ...m, payload: JSON.parse(m.body) }); return { status: 200 }; } });
   await app.start();
   base = `http://127.0.0.1:${PORT}`;
 });
@@ -322,7 +322,7 @@ test("push: risky or partly hidden commands need the app; muted projects stay qu
 
 // Capture the actual launched argv, without starting a model or doing work.
 test("unattended launch uses provider-native permissions and preserves prompts literally", async () => {
-  for (const [agent, flag] of [["claude", "--dangerously-skip-permissions"], ["codex", "--dangerously-bypass-approvals-and-sandbox"], ["gemini", "yolo"]]) {
+  for (const [agent, flag] of [["claude", "--dangerously-skip-permissions"], ["codex", "--dangerously-bypass-approvals-and-sandbox"]]) {
     const prompt = "Keep working; $(echo should-not-execute) 'quoted'";
     const r = await api("POST", "/api/agents", { agent, project: "demo", prompt, mode: "unattended", allowDuplicate: true });
     assert.equal(r.status, 502); // the capture-only fake exits immediately
@@ -330,6 +330,18 @@ test("unattended launch uses provider-native permissions and preserves prompts l
     assert.ok(r.body.output.includes("ARG:" + prompt), `${agent}: literal prompt`);
     assert.ok(!r.body.output.includes("ARG:on-request"));
   }
+});
+
+test("Antigravity starts with its own flags and offers no unattended launch", async () => {
+  const prompt = "Keep working; $(echo should-not-execute) 'quoted'";
+  const start = await api("POST", "/api/agents", { agent: "gemini", project: "demo", mode: "acceptEdits", model: "gemini-4-neon-high", prompt });
+  assert.equal(start.status, 502);
+  assert.match(start.body.output, /ARG:--mode\s+ARG:accept-edits/);
+  assert.match(start.body.output, /ARG:--model\s+ARG:gemini-4-neon-high/);
+  assert.match(start.body.output, /ARG:--prompt-interactive/);
+  assert.ok(start.body.output.includes("ARG:" + prompt));
+  assert.doesNotMatch(start.body.output, /--approval-mode|--session-id/);
+  assert.equal((await api("POST", "/api/agents", { agent: "gemini", project: "demo", mode: "unattended" })).status, 400);
 });
 
 test("default launch still asks; unattended is an explicit saved client choice", async () => {
