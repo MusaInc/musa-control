@@ -23,12 +23,28 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(dark ? 0x111214 : 0xf4f4f5);
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 10000);
-scene.add(new THREE.HemisphereLight(0xffffff, dark ? 0x222222 : 0x888888, 2.2));
-const sun = new THREE.DirectionalLight(0xffffff, 2.4); sun.position.set(3, 5, 4); scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xffffff, dark ? 0x202024 : 0x8a8a90, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(3, 5, 4); scene.add(sun);
+const rim = new THREE.DirectionalLight(0xffffff, 0.5); rim.position.set(-4, 2, -3); scene.add(rim);
+const neutral = () => new THREE.MeshStandardMaterial({ color: 0xb8bcc8, metalness: 0.05, roughness: 0.55 });
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 
+// Untextured OBJ/DAE parts come in as flat white Phong; give them a neutral
+// lit material so the shape reads. Textured materials are left alone.
+function shade(obj) {
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    if (mats.every((m) => !m?.map && (m?.isMeshPhongMaterial || m?.isMeshLambertMaterial || m?.isMeshBasicMaterial))) {
+      o.material = neutral();
+      o.geometry.computeVertexNormals?.();
+    }
+  });
+}
+
 function frame(obj) {
+  shade(obj);
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3()), centre = box.getCenter(new THREE.Vector3());
   const r = Math.max(size.x, size.y, size.z) || 1;
