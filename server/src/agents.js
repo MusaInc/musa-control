@@ -16,7 +16,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { processTable, cwdOf } from "./platform.js";
 import * as tmux from "./tmux.js";
-import { parsePrompt, keysFor } from "./prompts.js";
+import { parseAgyPrompt, parsePrompt, keysFor } from "./prompts.js";
 import { parseClaudeLine, parseCodexLine, parseGeminiLine } from "./transcripts.js";
 import { run } from "./exec.js";
 import { expand, resolveBinary } from "./config.js";
@@ -336,11 +336,8 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   async function pollPrompts() {
     for (const s of sessions.values()) {
       if (!s.tmux) { prompts.delete(s.key); continue; }
-      // Antigravity approvals stay in its terminal. These parser key sequences
-      // were verified only for Claude Code and Codex.
-      if (s.antigravity) continue;
-      const screen = await tmux.capture(s.tmux.target, { lines: 70 });
-      const p = parsePrompt(screen);
+      const screen = await tmux.capture(s.tmux.target, { lines: s.antigravity ? 1 : 70 });
+      const p = s.antigravity ? parseAgyPrompt(screen) : parsePrompt(screen);
       const prev = prompts.get(s.key);
       if (p) {
         prompts.set(s.key, { ...p, seenAt: prev?.signature === p.signature ? prev.seenAt : Date.now() });
@@ -489,9 +486,9 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
 
   async function answer(id, { signature, option, via = null }) {
     const s = get(id);
-    if (!s.tmux || s.antigravity) throw Object.assign(new Error("Use the agent terminal to answer this prompt."), { status: 409 });
-    const screen = await tmux.capture(s.tmux.target, { lines: 70 });
-    const p = parsePrompt(screen);
+    if (!s.tmux) throw Object.assign(new Error("Not controllable"), { status: 409 });
+    const screen = await tmux.capture(s.tmux.target, { lines: s.antigravity ? 1 : 70 });
+    const p = s.antigravity ? parseAgyPrompt(screen) : parsePrompt(screen);
     if (!p || p.signature !== signature) throw Object.assign(new Error("That prompt is no longer on screen. Refresh and check again."), { status: 409 });
     await tmux.sendKeys(s.tmux.target, keysFor(p, Number(option)));
     prompts.delete(id);

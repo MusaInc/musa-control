@@ -32,24 +32,32 @@ function time(value) {
 }
 
 export function agyConversations(root, since) {
+  const cachedWorkspaces = new Map(Object.entries(workspaceCache(root))
+    .filter(([cwd, id]) => path.isAbsolute(cwd) && idPattern.test(id))
+    .map(([cwd, id]) => [id, cwd]));
   return query(path.join(root, "conversation_summaries.db"), `
     SELECT conversation_id, title, workspace_uris, last_modified_time, status, not_fully_idle, parent_conversation_id
     FROM conversation_summaries ORDER BY last_modified_time DESC LIMIT 60
   `).flatMap((r) => {
     if (!idPattern.test(r.conversation_id) || r.parent_conversation_id || time(r.last_modified_time) < since) return [];
     try {
-      const cwd = fileURLToPath(JSON.parse(r.workspace_uris)[0]);
+      const uri = r.workspace_uris && JSON.parse(r.workspace_uris)[0];
+      const cwd = uri ? fileURLToPath(uri) : cachedWorkspaces.get(r.conversation_id);
+      if (!cwd) return [];
       return [{ id: r.conversation_id, cwd, title: clean(r.title, 200), activity: time(r.last_modified_time),
         running: Boolean(r.not_fully_idle) && /RUNNING$/.test(r.status), failed: /ERROR|FAILED/.test(r.status) }];
     } catch { return []; }
   });
 }
 
+function workspaceCache(root) {
+  try { return JSON.parse(fs.readFileSync(path.join(root, "cache/last_conversations.json"), "utf8")) || {}; }
+  catch { return {}; }
+}
+
 export function agyWorkspaceConversation(root, cwd) {
-  try {
-    const id = JSON.parse(fs.readFileSync(path.join(root, "cache/last_conversations.json"), "utf8"))[cwd];
-    return idPattern.test(id) ? id : null;
-  } catch { return null; }
+  const id = workspaceCache(root)[cwd];
+  return idPattern.test(id) ? id : null;
 }
 
 export function agyModel(root, pid, args) {

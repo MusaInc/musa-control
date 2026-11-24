@@ -334,9 +334,9 @@ test("unattended launch uses provider-native permissions and preserves prompts l
 
 test("Antigravity starts with its own flags and offers no unattended launch", async () => {
   const prompt = "Keep working; $(echo should-not-execute) 'quoted'";
-  const start = await api("POST", "/api/agents", { agent: "gemini", project: "demo", mode: "acceptEdits", model: "gemini-4-neon-high", prompt });
+  const start = await api("POST", "/api/agents", { agent: "gemini", project: "demo", mode: "plan", model: "gemini-4-neon-high", prompt });
   assert.equal(start.status, 502);
-  assert.match(start.body.output, /ARG:--mode\s+ARG:accept-edits/);
+  assert.match(start.body.output, /ARG:--mode\s+ARG:plan/);
   assert.match(start.body.output, /ARG:--model\s+ARG:gemini-4-neon-high/);
   assert.match(start.body.output, /ARG:--prompt-interactive/);
   assert.ok(start.body.output.includes("ARG:" + prompt));

@@ -14,6 +14,27 @@ const BOX_ROW = /^\s*│(.*?)│?\s*$/;
 const BOX_END = /^\s*╰[─━]+╯?\s*$/;
 const SEPARATOR = /^[\s─━╌┄═\-_]+$/;
 
+// Antigravity 1.5.15 draws this exact trust selector in a tmux pane.
+// Other Antigravity permission dialogs are handled in its terminal.
+export function parseAgyPrompt(screen) {
+  const lines = String(screen || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  const footer = lines.findLastIndex((line) => line === "↑/↓ Navigate · enter Confirm");
+  if (footer < 5 || footer < lines.length - 3) return null;
+  const [question, notice, yes, no] = lines.slice(footer - 4, footer);
+  if (question !== "Do you trust the contents of this project?" ||
+      notice !== "Antigravity CLI requires permission to read, edit, and execute files here." ||
+      yes.replace(/^>\s*/, "") !== "Yes, I trust this folder" || no.replace(/^>\s*/, "") !== "No, exit" ||
+      yes.startsWith(">") === no.startsWith(">")) return null;
+  const workspace = lines[footer - 5];
+  if (lines[footer - 6] !== "Accessing workspace:" || !workspace.startsWith("/")) return null;
+  return {
+    kind: "trust", question, context: `Workspace: ${workspace}`, command: null, selected: yes.startsWith(">") ? 0 : 1,
+    options: [{ index: 0, number: null, label: "Yes, I trust this folder", tone: "allow" },
+      { index: 1, number: null, label: "No, exit", tone: "deny" }],
+    signature: crypto.createHash("sha1").update(`agy:trust:${workspace}`).digest("hex").slice(0, 16),
+  };
+}
+
 export function parsePrompt(screen) {
   if (!screen) return null;
   const lines = screen.replace(/\r/g, "").split("\n").map((l) => l.replace(/\s+$/, ""));
