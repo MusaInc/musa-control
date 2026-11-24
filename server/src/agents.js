@@ -19,6 +19,7 @@ import * as tmux from "./tmux.js";
 import { parseAgyPrompt, parsePrompt, keysFor } from "./prompts.js";
 import { parseClaudeLine, parseCodexLine, parseGeminiLine } from "./transcripts.js";
 import { run } from "./exec.js";
+const BIN_DIR = new URL("../bin", import.meta.url).pathname; // musa-preview
 import { expand, resolveBinary } from "./config.js";
 import { agyArgs, agyRoot, agyConversations, agyWorkspaceConversation, agyModel, agySteps, createAgyImages, clean } from "./antigravity.js";
 
@@ -29,7 +30,8 @@ export const agentName = (a) => ({ claude: "Claude Code", codex: "Codex", gemini
 const DAY = 86400_000;
 const SIZE = { w: 180, h: 50 }; // managed agent windows when no client is attached
 
-export function createAgents(cfg, db, projects, events, { watcher, screenshots, providerEnv } = {}) {
+export function createAgents(cfg, db, projects, events, { watcher, screenshots, providerEnv, previewDir } = {}) {
+  const paused = new Set(); // session keys frozen with SIGSTOP
   const sessions = new Map(); // key → session
   const files = new Map();    // transcript path → {key, offset, state, agent}
   const offsets = db.get("transcript-offsets", {});
@@ -358,6 +360,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     const p = prompts.get(s.key);
     if (p) return { status: "approval", text: p.question };
     const recent = Date.now() - (s.lastActivity || 0) < 10 * 60_000;
+    if (s.pid && paused.has(s.key)) return { status: "paused", text: "Paused — resume to continue" };
     if (s.pid) {
       if (s.antigravity && s.turn === "working") return { status: "working", text: s.lastEvent?.title || "Working in Antigravity" };
       if (s.turn === "working" && recent) return { status: "working", text: s.lastEvent?.title || "Working" };
@@ -386,7 +389,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       .filter((v) => includeEnded || v.status !== "ended")
       .sort((a, b) => rank(a) - rank(b) || b.lastActivity - a.lastActivity);
   }
-  const rank = (v) => ({ approval: 0, working: 1, idle: 2, exited: 3, failed: 4, ended: 5 })[v.status] ?? 6;
+  const rank = (v) => ({ approval: 0, working: 1, paused: 2, idle: 2, exited: 3, failed: 4, ended: 5 })[v.status] ?? 6;
 
   function get(id) {
     const s = sessions.get(id);
@@ -395,7 +398,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   }
 
   // ---------- control ----------
-  async function launch({ agent, project, prompt = "", mode = "default", resume = null, allowDuplicate = false, model = null }) {
+  async function launch({ agent, project, prompt = "", mode = "default", resume = null, allowDuplicate = false, model = null, previewHint = false }) {
     if (!AGENTS.includes(agent)) throw Object.assign(new Error("agent must be claude, codex or gemini"), { status: 400 });
     if (cfg.hosted) {
       if (agent !== "codex") throw Object.assign(new Error("This workspace uses your own ChatGPT subscription."), { status: 403 });
@@ -419,6 +422,11 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       throw Object.assign(new Error("An agent is already using this workspace. Open that session or start in a separate checkout."), { status: 409, body: { duplicate: conflict.id } });
     const id = crypto.randomUUID();
     const name = `mc-${agent}-${p.id.slice(0, 24)}-${id.slice(0, 4)}`;
+    // The Visualiser folder for this project, and an optional one-line note
+    // in the first prompt so the agent knows it can show its outputs there.
+    const pdir = previewDir ? previewDir(p.id) : null;
+    if (pdir) fs.mkdirSync(pdir, { recursive: true });
+    if (pdir && previewHint && prompt && !resume) prompt = `${prompt}\n\n(Musa Control: to show me an image, chart, 3D model, HTML page or video while you work, save it into $MUSA_PREVIEW_DIR or run \`musa-preview <file>\`; it appears in my live Visualiser.)`;
     let cmd;
     if (agent === "claude") {
       const args = [cfg.claudeBinary];
@@ -442,7 +450,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     // A login shell for the user's profile; binaries are absolute (config.js)
     // and PATH is passed through, so nvm-installed agents are found.
     const binDir = path.dirname({ claude: cfg.claudeBinary, codex: cfg.codexBinary, gemini: agy }[agent]);
-    const env = { PATH: [binDir, process.env.PATH].filter(Boolean).join(":") };
+    const env = { PATH: [binDir, BIN_DIR, process.env.PATH].filter(Boolean).join(":") };
     // Optional API keys the user saved on this machine (providers.js); the
     // agent's own sign-in is used when there are none.
     // They go through a 0600 file the shell reads and deletes, never through
@@ -456,7 +464,8 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
       fs.writeFileSync(f, Object.entries(keyEnv).map(([k, v]) => `${k}=${shq(v)}`).join("\n") + "\n", { mode: 0o600 });
       pre = `set -a; . ${shq(f)}; set +a; rm -f ${shq(f)}; `;
     }
-    await tmux.newSession(name, p.path, `bash -lc ${shq(`${pre}export PATH=${shq(env.PATH)}:"$PATH"; exec ${cmd}`)}`, { width: SIZE.w, height: SIZE.h });
+    const previewEnv = pdir ? `export MUSA_PREVIEW_DIR=${shq(pdir)}; ` : "";
+    await tmux.newSession(name, p.path, `bash -lc ${shq(`${pre}${previewEnv}export PATH=${shq(env.PATH)}:"$PATH"; exec ${cmd}`)}`, { width: SIZE.w, height: SIZE.h });
     db.raw.prepare("INSERT INTO managed_agents(id,agent,project,cwd,tmux,session_id,created_at,title) VALUES(?,?,?,?,?,?,?,?)")
       .run(id, agent, p.id, p.path, name, agent === "claude" ? (resume || id) : resume, Date.now(), prompt.slice(0, 200) || null);
     // An agent that dies at once (not installed, bad flag, auth expired) used
@@ -478,6 +487,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   async function send(id, text) {
     const s = get(id);
     if (!s.tmux) throw Object.assign(new Error("This session isn't running in tmux, so Musa Control can only watch it."), { status: 409 });
+    if (paused.has(s.key)) await resumeAgent(id); // a new instruction un-pauses
     if (prompts.get(id)) throw Object.assign(new Error("The agent is waiting for an approval answer first."), { status: 409 });
     await tmux.sendText(s.tmux.target, text);
     events.emit({ kind: "agent.instruction", project: s.project, session: s.key, title: `You: ${String(text).slice(0, 160)}`, detail: { text: String(text).slice(0, 20000) } });
@@ -530,9 +540,40 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   async function interrupt(id) {
     const s = get(id);
     if (!s.tmux) throw Object.assign(new Error("Not controllable"), { status: 409 });
+    if (paused.has(s.key)) await resumeAgent(id);
     await tmux.sendKeys(s.tmux.target, ["Escape"]);
     events.emit({ kind: "agent.stopped", project: s.project, session: s.key, title: "Interrupted from Musa Control", detail: {} });
     return { ok: true };
+  }
+
+  // Pause freezes the agent and everything it started (SIGSTOP); nothing is
+  // lost and resume continues exactly where it was. Model requests in flight
+  // may time out while paused; the CLIs retry them.
+  async function processTree(pid) {
+    const r = await run("ps", ["-eo", "pid=,ppid="]);
+    const kids = new Map();
+    for (const line of r.stdout.split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(\d+)$/);
+      if (m) { if (!kids.has(+m[2])) kids.set(+m[2], []); kids.get(+m[2]).push(+m[1]); }
+    }
+    const out = [], stack = [pid];
+    while (stack.length && out.length < 500) { const p = stack.pop(); out.push(p); stack.push(...(kids.get(p) || [])); }
+    return out;
+  }
+  async function pause(id) {
+    const s = get(id);
+    if (!s.pid || !s.tmux) throw Object.assign(new Error("Only a running tmux session can be paused."), { status: 409 });
+    for (const pid of await processTree(s.pid)) { try { process.kill(pid, "SIGSTOP"); } catch {} }
+    paused.add(s.key);
+    events.emit({ kind: "agent.paused", project: s.project, session: s.key, title: "Paused from Musa Control", detail: {} });
+    return { ok: true, status: "paused" };
+  }
+  async function resumeAgent(id) {
+    const s = get(id);
+    if (s.pid) for (const pid of (await processTree(s.pid)).reverse()) { try { process.kill(pid, "SIGCONT"); } catch {} }
+    const was = paused.delete(s.key);
+    if (was) events.emit({ kind: "agent.resumed", project: s.project, session: s.key, title: "Resumed from Musa Control", detail: {} });
+    return { ok: true, status: statusOf(s).status };
   }
 
   // Ends a session Musa Control launched. Sessions started elsewhere are
@@ -576,5 +617,5 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
   }
   function stop() { clearInterval(timer); clearInterval(procTimer); clearInterval(promptTimer); db.set("transcript-offsets", offsets); }
 
-  return { start, stop, list, get: (id) => view(get(id)), launch, send, answer, interrupt, end, screen, attachFile, pollTranscripts, pollProcesses, pollPrompts, _sessions: sessions };
+  return { start, stop, list, get: (id) => view(get(id)), launch, send, answer, interrupt, pause, resume: resumeAgent, end, screen, attachFile, pollTranscripts, pollProcesses, pollPrompts, _sessions: sessions };
 }

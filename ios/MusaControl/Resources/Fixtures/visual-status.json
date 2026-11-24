@@ -1,0 +1,1 @@
+{"sandbox":"bwrap","python":"/home/dev/.local/share/musa-control/python/bin/python3","venv":true,"packages":{"matplotlib":true,"numpy":true,"PIL":true,"plotly":false,"trimesh":false},"dir":"/home/dev/.local/share/musa-control/visuals"}

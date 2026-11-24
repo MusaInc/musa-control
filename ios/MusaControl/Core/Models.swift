@@ -174,7 +174,7 @@ struct Agent: Codable, Identifiable, Hashable {
     let counts: AgentCounts?
     let lastEvent: LastEvent?
 
-    var isLive: Bool { ["working", "approval", "idle"].contains(status) && pid != nil }
+    var isLive: Bool { ["working", "approval", "idle", "paused"].contains(status) && pid != nil }
     var icon: String { agent == "gemini" ? "sparkles" : agent == "claude" ? "sparkle" : "terminal" }
 }
 

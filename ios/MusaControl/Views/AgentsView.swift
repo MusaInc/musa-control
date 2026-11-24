@@ -203,7 +203,7 @@ struct AgentDetail: View {
                 }
             }
             if let t = agent.tmux?.session { Button { app.attachTerminal(t) } label: { Label("Open in Terminal", systemImage: "terminal") } }
-            Button { app.followAgent = agent.id; app.followPaused = false; app.go(.visuals) } label: { Label("Follow in Visuals", systemImage: "scope") }
+            if !Device.isPhone { Button { app.showAgent(agent.id) } label: { Label("Watch live in the workspace", systemImage: "scope") } }
             if let p = agent.project { Button { app.openWorkspace(p) } label: { Label("Open workspace", systemImage: "rectangle.split.3x1") } }
             if !agent.isLive, let sid = agent.sessionId, let p = agent.project {
                 Button { act { _ = try await app.client.send("POST", "/api/agents", ["agent": agent.agent, "project": p, "resume": sid], as: LaunchResult.self) } } label: { Label("Resume session", systemImage: "arrow.clockwise") }

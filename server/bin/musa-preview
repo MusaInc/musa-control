@@ -1,0 +1,32 @@
+#!/bin/sh
+# musa-preview: show files in Musa Control's Visualiser panel.
+#
+#   musa-preview chart.png model.glb page.html   copy the files in (refreshes the panel)
+#   musa-preview --link out/render.png           link instead: every later rewrite of
+#                                                the file refreshes the panel by itself
+#   musa-preview --dir                           print the folder (write outputs there directly)
+#   musa-preview --clear                         empty the folder
+#
+# Agents started from Musa Control get MUSA_PREVIEW_DIR set to their project's
+# folder. Anywhere else the shared folder is used.
+set -eu
+dir=${MUSA_PREVIEW_DIR:-"${XDG_DATA_HOME:-$HOME/.local/share}/musa-control/visuals/_shared"}
+mkdir -p "$dir"
+link=0
+case "${1:-}" in
+  --dir) echo "$dir"; exit 0 ;;
+  --clear) find "$dir" -mindepth 1 -maxdepth 1 ! -name runs -exec rm -rf {} +; echo "Cleared $dir"; exit 0 ;;
+  --link) link=1; shift ;;
+  -h|--help|"") sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
+for f in "$@"; do
+  [ -f "$f" ] || { echo "musa-preview: no such file: $f" >&2; exit 1; }
+  name=$(basename "$f")
+  if [ "$link" = 1 ]; then
+    abs=$(cd "$(dirname "$f")" && pwd)/$name
+    ln -sfn "$abs" "$dir/$name"
+  else
+    cp -f "$f" "$dir/.$name.part" && mv -f "$dir/.$name.part" "$dir/$name"
+  fi
+  echo "Showing $name in the Visualiser"
+done

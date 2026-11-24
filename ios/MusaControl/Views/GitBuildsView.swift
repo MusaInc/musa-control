@@ -168,7 +168,7 @@ struct GitPanel: View {
         .onTapGesture { selected = f; Task { await showDiff(f, staged: staged) } }
         .listRowBackground(selected?.path == f.path ? Theme.hover : Theme.surface)
         .contextMenu {
-            Button { FilesState.shared.open(project: projectId, path: f.path); app.filesProject = projectId; app.go(.files) } label: { Label("Open file", systemImage: "doc.text") }
+            Button { app.openFile(project: projectId, path: f.path) } label: { Label("Open file", systemImage: "doc.text") }
         }
     }
 

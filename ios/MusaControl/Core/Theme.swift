@@ -64,19 +64,6 @@ enum Theme {
     static let field = dyn((0.690, 0.431, 0.098), (0.937, 0.761, 0.506), alpha: 0.9)
     static let fieldCool = dyn((0.153, 0.420, 0.800), (0.502, 0.698, 0.973), alpha: 0.9)
 
-    /// One colour per aura so every surface (tile border, chip dot, heartbeat)
-    /// agrees on what a state looks like.
-    static func aura(_ a: DeckAura) -> Color {
-        switch a {
-        case .working: return blue
-        case .thinking: return purple
-        case .approval: return yellow
-        case .failed: return red
-        case .done: return green
-        case .resting: return textFaint
-        }
-    }
-
     static func status(_ s: String) -> Color {
         switch s {
         case "approval": return yellow
@@ -84,6 +71,7 @@ enum Theme {
         case "idle", "succeeded", "success", "active", "completed": return green
         case "failed", "failure", "error", "cancelled": return red
         case "exited": return purple
+        case "paused": return textDim
         default: return textFaint
         }
     }

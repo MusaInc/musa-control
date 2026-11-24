@@ -54,6 +54,8 @@ struct FixtureTransport: GatewayTransport {
         ("GET", "^/api/screenshots$", "screenshots.json"),
         ("GET", "^/api/timeline$", "timeline.json"),
         ("GET", "^/api/vnc/displays$", "displays.json"),
+        ("GET", "^/api/visuals/status$", "visual-status.json"),
+        ("GET", "^/api/visuals/[^/]+$", "visuals.json"),
         ("GET", "^/api/tmux$", "tmux.json"),
         ("GET", "^/api/devices$", "devices.json"),
         ("GET", "^/api/push$", "push.json"),
@@ -76,6 +78,12 @@ struct FixtureTransport: GatewayTransport {
             let id = path.split(separator: "/")[2]
             let n = (Int(id) ?? 0) % 4
             if let u = Bundle.main.url(forResource: "shot-\(n)", withExtension: "jpg", subdirectory: "Fixtures"), let d = try? Data(contentsOf: u) { return reply(d, type: "image/jpeg") }
+        }
+        // Visualiser outputs: pictures are the sample screenshots, text is a note.
+        if method == "GET", path.range(of: "^/api/visuals/[^/]+/file$", options: .regularExpression) != nil {
+            let rel = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "path" })?.value ?? ""
+            if rel.hasSuffix(".txt") { return reply(Data("Swing tuning (sample)\n- rope length 14 m\n- release boost 1.2x\n".utf8), type: "text/plain") }
+            if let u = Bundle.main.url(forResource: rel.contains("figure") ? "shot-2" : "shot-3", withExtension: "jpg", subdirectory: "Fixtures"), let d = try? Data(contentsOf: u) { return reply(d, type: "image/jpeg") }
         }
         // Per-agent sessions and per-file contents when there's a fixture for
         // them; otherwise the shared sample below.

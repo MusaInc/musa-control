@@ -311,4 +311,10 @@ final class TerminalStore {
     }
 
     var current: TerminalSession? { sessions.first { $0.id == selected } }
+
+    /// The terminal that owns a (first-responder) view, for the keyboard-focus indicator.
+    func owner(of view: UIView) -> TerminalSession? {
+        (sessions + Array(panelSessions.values)).first { $0.view === view }
+    }
+    func panel(named name: String) -> TerminalSession? { panelSessions[name] ?? sessions.first { $0.tmuxName == name } }
 }

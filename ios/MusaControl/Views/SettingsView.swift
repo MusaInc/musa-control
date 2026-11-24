@@ -46,7 +46,7 @@ struct SettingsView: View {
                 }
                 Button { Task { await setupSSH() } } label: { HStack { if sshBusy { ProgressView().controlSize(.small) }; Text(ssh?.keyInstalled == true ? "Re-install key & refresh host keys" : "Set up SSH for this \(Device.name)") } }
                     .disabled(sshBusy)
-                Button("Open a test terminal") { app.go(.terminal); terminals.newShell() }.disabled(ssh?.keyInstalled != true)
+                Button("Open a test terminal") { app.showTerminal(tmux: nil) }.disabled(ssh?.keyInstalled != true)
                 if let sshNote { Text(sshNote).font(Theme.caption).foregroundStyle(Theme.textDim) }
             } header: { Text("SSH") } footer: {
                 Text("The key is generated on this \(Device.name) and stored in the Keychain; only the public half is sent. Host keys are pinned from the gateway over TLS, and every connection is verified against them.")
@@ -54,7 +54,7 @@ struct SettingsView: View {
                 SwiftUI.Section {
                     LabeledContent("This \(Device.name)'s key", value: SSHKeys.ownFingerprint).font(Theme.monoSmall)
                     ForEach(m.pins ?? [], id: \.self) { fp in LabeledContent("Pinned host key", value: fp).font(Theme.monoSmall) }
-                    Button("Open a test terminal") { app.go(.terminal); terminals.newShell() }
+                    Button("Open a test terminal") { app.showTerminal(tmux: nil) }
                 } header: { Text("SSH") } footer: { Text("Pinned when the computer was added. A changed host key is refused.") }
             }
 

@@ -32,6 +32,7 @@ struct MusaControlApp: App {
             RootView()
                 .overlay { LockOverlay() }
                 .environment(app)
+                .environment(app.desktop)
                 .environment(terminals)
                 .preferredColorScheme(appearance == "light" ? .light : appearance == "dark" ? .dark : nil)
                 .tint(Theme.accent)
@@ -67,34 +68,85 @@ struct MusaControlApp: App {
             default: break
             }
         }
-        .commands {
-            CommandMenu("Navigate") {
-                ForEach(AppSection.allCases) { s in
-                    if let k = s.shortcut { Button(s.title) { app.go(s) }.keyboardShortcut(k, modifiers: .command) }
-                    else { Button(s.title) { app.go(s) } }
-                }
-                Divider()
-                Button(app.sidebarExpanded ? "Collapse Sidebar" : "Show Sidebar") { withAnimation(.snappy(duration: 0.22)) { app.sidebarExpanded.toggle(); app.sidebarOverlay.toggle() } }.keyboardShortcut("s", modifiers: [.control, .command])
-                Button("Quick Switch…") { app.showSwitcher = true }.keyboardShortcut("k", modifiers: .command)
-                Button("New Agent Task…") { app.launcherProject = app.workspaceProject; app.showLauncher = true }.keyboardShortcut("n", modifiers: [.command, .shift])
-                Button(app.followPaused ? "Resume Follow Agent" : "Pause Follow Agent") { app.followPaused.toggle() }.keyboardShortcut("f", modifiers: [.command, .shift])
-                Button("Refresh") { Task { await app.refreshAll() } }.keyboardShortcut("r", modifiers: [.command, .shift])
+        .commands { WorkspaceCommands(app: app) }
+    }
+}
+
+/// Keyboard map. Musa Control's own shortcuts use ⌘ with digits/symbols,
+/// ⇧⌘ or ⌃⌘, so the keys a terminal or remote session needs (⌃C, ⌃D, Esc,
+/// Tab, arrows, F-keys, and ⌘C/⌘V/⌘Z/⌘S/⌘F while the desktop has the
+/// keyboard) always reach it. Hold ⌘ to see this list.
+struct WorkspaceCommands: Commands {
+    let app: AppModel
+
+    var body: some Commands {
+        CommandMenu("Workspace") {
+            Button("Quick Open…") { app.showQuickOpen = true }.keyboardShortcut("p", modifiers: .command)
+            Button("Go to Project, Agent or Panel…") { app.showSwitcher = true }.keyboardShortcut("k", modifiers: .command)
+            Button("Find in Project…") { app.workspace.navigator = .files; app.workspace.navigatorVisible = true }.keyboardShortcut("f", modifiers: [.command, .shift])
+            Divider()
+            Button(app.workspace.navigatorVisible ? "Hide Navigator" : "Show Navigator") { withAnimation(.snappy(duration: 0.2)) { app.workspace.navigatorVisible.toggle() } }.keyboardShortcut("0", modifiers: .command)
+            Button("Files") { app.workspace.navigator = .files; app.workspace.navigatorVisible = true }.keyboardShortcut("e", modifiers: [.command, .shift])
+            Button("Agents") { app.workspace.navigator = .agents; app.workspace.navigatorVisible = true }.keyboardShortcut("a", modifiers: [.command, .shift])
+            Button("Source Control") { app.workspace.navigator = .git; app.workspace.navigatorVisible = true }.keyboardShortcut("g", modifiers: [.command, .shift])
+            Divider()
+            ForEach(Array(WorkspaceLayout.Preset.allCases.enumerated()), id: \.element) { i, p in
+                Button("\(p.title) Layout") { withAnimation(.snappy(duration: 0.25)) { app.workspace.apply(p) } }
+                    .keyboardShortcut(KeyEquivalent(Character(String(i + 1))), modifiers: [.control, .command])
             }
-            CommandMenu("Terminal") {
-                Button("New Terminal Tab") { app.go(.terminal); terminals.newShell() }.keyboardShortcut("t", modifiers: .command)
-                Button("Split Terminal") {
-                    app.go(.terminal)
-                    if terminals.splitWith == nil, let other = terminals.sessions.first(where: { $0.id != terminals.selected }) { terminals.splitWith = other.id } else { terminals.splitWith = nil }
-                }.keyboardShortcut("d", modifiers: .command)
-                Button("Next Tab") {
-                    guard let i = terminals.sessions.firstIndex(where: { $0.id == terminals.selected }), !terminals.sessions.isEmpty else { return }
-                    terminals.selected = terminals.sessions[(i + 1) % terminals.sessions.count].id
-                }.keyboardShortcut("]", modifiers: [.command, .shift])
-                Button("Previous Tab") {
-                    guard let i = terminals.sessions.firstIndex(where: { $0.id == terminals.selected }), !terminals.sessions.isEmpty else { return }
-                    terminals.selected = terminals.sessions[(i - 1 + terminals.sessions.count) % terminals.sessions.count].id
-                }.keyboardShortcut("[", modifiers: [.command, .shift])
-            }
+            Divider()
+            Button("Machines & AI…") { app.sheet = .machines }.keyboardShortcut(",", modifiers: [.command, .shift])
+            Button("Settings…") { app.sheet = .settings }.keyboardShortcut(",", modifiers: .command)
+            Button("Refresh") { Task { await app.refreshAll() } }.keyboardShortcut("r", modifiers: [.command, .shift])
         }
+        CommandMenu("Panels") {
+            ForEach(1...9, id: \.self) { n in
+                Button("Focus Panel \(n)") { app.workspace.focus(index: n - 1) }.keyboardShortcut(KeyEquivalent(Character(String(n))), modifiers: .command)
+            }
+            Button("Next Panel") { app.workspace.cycleFocus(1) }.keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            Button("Previous Panel") { app.workspace.cycleFocus(-1) }.keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            Divider()
+            ForEach(PanelKind.allCases) { k in
+                Button("Show \(k.title)") { app.workspace.reveal(k) }.keyboardShortcut(KeyEquivalent(k.key), modifiers: [.control, .command])
+            }
+            Divider()
+            Button("New Terminal") { app.showTerminal(tmux: nil) }.keyboardShortcut("t", modifiers: .command)
+            Button("Split: Terminal Below") { _ = app.workspace.add(.terminal, beside: app.workspace.focused) }.keyboardShortcut("d", modifiers: .command)
+            Button("Maximise / Restore Panel") { if let f = app.workspace.focused { withAnimation(.snappy(duration: 0.2)) { app.workspace.toggleMaximize(f) } } }.keyboardShortcut("m", modifiers: [.control, .command])
+            Button("Close Panel") { if let f = app.workspace.focused { withAnimation(.snappy(duration: 0.2)) { app.workspace.close(f) } } }.keyboardShortcut("w", modifiers: [.control, .command])
+        }
+        CommandMenu("Agent") {
+            Button("New Agent Task…") { app.launcherProject = app.workspace.projectId; app.showLauncher = true }.keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Show Agent Activity") { app.workspace.reveal(.agent) }.keyboardShortcut("l", modifiers: [.command, .shift])
+            Button("Interrupt Agent") { interruptFocusedAgent() }.keyboardShortcut(".", modifiers: .command)
+        }
+        CommandMenu("Remote Desktop") {
+            Button(app.desktop.active ? "Close Remote Desktop" : "Open Remote Desktop") { withAnimation(.snappy(duration: 0.25)) { app.toggleDesktop() } }.keyboardShortcut("d", modifiers: [.control, .command])
+            Button("Beside the Workspace") { show(.split) }.keyboardShortcut("\\", modifiers: [.control, .command])
+            Button("Floating Window") { show(.floating) }.keyboardShortcut("p", modifiers: [.control, .command])
+            Button("Full Screen") { show(app.desktop.presentation == .full ? .split : .full) }.keyboardShortcut("f", modifiers: [.control, .command])
+            Button("Minimise to Thumbnail") { show(.mini) }.keyboardShortcut("j", modifiers: [.control, .command])
+            Divider()
+            Button(app.desktop.control ? "Watch Only" : "Take Control") { app.desktop.setControl(!app.desktop.control); if app.desktop.control { app.desktop.focusKeyboard() } }
+                .keyboardShortcut("c", modifiers: [.control, .command]).disabled(!app.desktop.active)
+            Button("Give Keyboard to Desktop") { app.desktop.focusKeyboard() }.keyboardShortcut("k", modifiers: [.control, .command]).disabled(!app.desktop.active)
+            Button("Paste iPad Clipboard into Desktop") { app.desktop.pasteFromDevice() }.keyboardShortcut("v", modifiers: [.control, .command]).disabled(!app.desktop.control)
+            Button("Reconnect") { app.desktop.reconnect() }.keyboardShortcut("r", modifiers: [.control, .command]).disabled(!app.desktop.active)
+        }
+    }
+
+    func show(_ p: DesktopStore.Presentation) {
+        withAnimation(.snappy(duration: 0.25)) {
+            if !app.desktop.active { app.showDesktop(follow: false) }
+            app.desktop.presentation = p
+        }
+    }
+
+    func interruptFocusedAgent() {
+        let ws = app.workspace
+        let slot = ws.layout.slots.first { $0.id == ws.focused && $0.kind == .agent } ?? ws.layout.slots.first { $0.kind == .agent }
+        let id = slot?.config["agent"] ?? app.agents.first { $0.isLive && $0.project == ws.projectId && $0.status == "working" }?.id
+        guard let id else { return }
+        Task { _ = try? await app.client.send("POST", "/api/agents/\(id.pathSegment)/interrupt", [:], as: OK.self); await app.refreshAgents() }
     }
 }

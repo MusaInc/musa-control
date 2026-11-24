@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Model</title>
+<style>
+  :root { --bg: #f4f4f5; --fg: #52525b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111214; --fg: #a1a1aa; } }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; touch-action: none; }
+  canvas { display: block; }
+  #info { position: absolute; left: 10px; bottom: 8px; font: 12px -apple-system, system-ui, sans-serif; color: var(--fg); pointer-events: none; }
+</style>
+<script type="importmap">{ "imports": { "three": "./three/three.module.min.js", "three/addons/": "./three/addons/" } }</script>
+</head>
+<body>
+<div id="info">Loading…</div>
+<script type="module" src="model.js"></script>
+</body>
+</html>

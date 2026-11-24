@@ -100,23 +100,34 @@ struct FileBrowser: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
-                TextField(searchMode == "name" ? "Find file" : "Search in files", text: $query).font(.system(size: 14)).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.textFaint)
+                TextField(searchMode == "name" ? "Find file" : searchMode == "content" ? "Search in files" : searchMode == "symbols" ? "Find symbol" : "Find command", text: $query)
+                    .font(.system(size: 13)).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .onSubmit { Task { await search() } }
-                Picker("Search mode", selection: $searchMode) { Text("Files").tag("name"); Text("Contents").tag("content"); Text("Symbols").tag("symbols"); Text("Commands").tag("commands") }.pickerStyle(.menu)
+                Menu {
+                    Picker("Search", selection: $searchMode) { Text("File names").tag("name"); Text("File contents").tag("content"); Text("Symbols").tag("symbols"); Text("Commands").tag("commands") }
+                    Section("Options") {
+                        Toggle("Regular expression", isOn: $regex)
+                        Toggle("Case sensitive", isOn: $caseSensitive)
+                        Toggle("Whole word", isOn: $wholeWord)
+                        Toggle("Include ignored files", isOn: $includeIgnored)
+                    }
+                    if !recentSearch.isEmpty { Button("Reuse last search: \(recentSearch)") { query = recentSearch } }
+                } label: {
+                    Image(systemName: regex || caseSensitive || wholeWord || includeIgnored || searchMode != "name" ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 14)).foregroundStyle(Theme.textDim).frame(width: 28, height: 28)
+                }
+                .accessibilityLabel("Search options")
             }
-            .padding(.horizontal, 8).frame(height: 36).background(Theme.raised)
-            Menu("Search options") {
-                Toggle("Regular expression", isOn: $regex)
-                Toggle("Case sensitive", isOn: $caseSensitive)
-                Toggle("Whole word", isOn: $wholeWord)
-                Toggle("Include ignored files", isOn: $includeIgnored)
-                Button("Reuse last search") { query = recentSearch }
-            }.font(Theme.caption)
-            HStack {
-                TextField("Folder filter", text: $folderFilter)
-                TextField("Extension", text: $extensionFilter)
-            }.font(Theme.caption).textInputAutocapitalization(.never).autocorrectionDisabled().padding(6)
+            .padding(.horizontal, 8).frame(height: 32)
+            .background(Theme.bg, in: RoundedRectangle(cornerRadius: 7))
+            .padding(.horizontal, 8).padding(.bottom, 4)
+            if searchMode == "content" && !query.isEmpty {
+                HStack {
+                    TextField("In folder", text: $folderFilter)
+                    TextField("Extension", text: $extensionFilter)
+                }.font(Theme.caption).textInputAutocapitalization(.never).autocorrectionDisabled().padding(.horizontal, 10).padding(.bottom, 4)
+            }
             if searchMode == "commands" {
                 List {
                     ForEach(["Copy Entire File", "Copy Path", "Replace File", "Reveal in Explorer"].filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }, id: \.self) { command in
@@ -422,18 +433,40 @@ struct FileViewerPanel: View {
     var path: String? { files.openPath[projectId] }
     var dirty: Bool { content?.text != nil && text != content?.text }
 
+    func closeTab(_ tab: String) {
+        guard files.drafts[projectId + "/" + tab] == nil || tab != path || !dirty else { status = "Save or revert before closing"; return }
+        files.tabs[projectId]?.removeAll { $0 == tab }
+        if tab == path { if let next = files.tabs[projectId]?.last { files.open(project: projectId, path: next) } else { files.close(project: projectId) } }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let path {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
+                    HStack(spacing: 0) {
                         ForEach(files.tabs[projectId] ?? [path], id: \.self) { tab in
-                            Button((tab as NSString).lastPathComponent + (files.drafts[projectId + "/" + tab] != nil ? " •" : "")) {
-                                files.open(project: projectId, path: tab)
-                            }.buttonStyle(.bordered).tint(tab == path ? Theme.accent : Theme.textDim)
+                            let on = tab == path
+                            HStack(spacing: 5) {
+                                Image(systemName: "doc.text").font(.system(size: 10)).foregroundStyle(on ? Theme.accent : Theme.textFaint)
+                                Text((tab as NSString).lastPathComponent).font(.system(size: 12, weight: on ? .semibold : .regular)).lineLimit(1)
+                                if files.drafts[projectId + "/" + tab] != nil { Circle().fill(Theme.textDim).frame(width: 6, height: 6) }
+                                if (files.tabs[projectId]?.count ?? 0) > 1 {
+                                    Button { closeTab(tab) } label: { Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 16, height: 16) }
+                                        .buttonStyle(.plain).foregroundStyle(Theme.textFaint).accessibilityLabel("Close \((tab as NSString).lastPathComponent)")
+                                }
+                            }
+                            .padding(.horizontal, 10).frame(height: 28)
+                            .background(on ? Theme.surface : Theme.bg)
+                            .overlay(alignment: .top) { if on { Rectangle().fill(Theme.accent).frame(height: 2) } }
+                            .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
+                            .contentShape(Rectangle())
+                            .onTapGesture { files.open(project: projectId, path: tab) }
+                            .foregroundStyle(on ? Theme.text : Theme.textDim)
                         }
-                    }.padding(4)
+                    }
                 }
+                .background(Theme.bg)
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
                 header(path)
                     .onChange(of: dirty) { _, d in if d { files.unsaved.insert(projectId) } else { files.unsaved.remove(projectId) } }
                 if changedOnServer {

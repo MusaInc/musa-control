@@ -2,27 +2,30 @@ import SwiftUI
 import Observation
 import UIKit
 
+/// Places the app can take you. Everything except Machines & AI and
+/// Settings opens inside the one workspace (a panel, the navigator or the
+/// remote desktop); those two open as sheets over it.
 enum AppSection: String, CaseIterable, Identifiable, Codable {
-    case home, deck, workspaces, agents, terminal, files, visuals, git, machines, settings
+    case workspace, agents, terminal, files, visuals, git, desktop, machines, settings
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .home: return "Home"; case .deck: return "Command Deck"; case .workspaces: return "Workspaces"; case .agents: return "Agents"; case .terminal: return "Terminal"
-        case .files: return "Files"; case .visuals: return "Visuals"; case .git: return "Git & Builds"; case .machines: return "Machines & AI"; case .settings: return "Settings"
+        case .workspace: return "Workspace"; case .agents: return "Agents"; case .terminal: return "Terminal"; case .files: return "Files"
+        case .visuals: return "Visualiser"; case .git: return "Source Control"; case .desktop: return "Remote Desktop"
+        case .machines: return "Machines & AI"; case .settings: return "Settings"
         }
     }
     var icon: String {
         switch self {
-        case .home: return "square.grid.2x2"; case .deck: return "rectangle.3.group"; case .workspaces: return "rectangle.split.3x1"; case .agents: return "sparkles"; case .terminal: return "terminal"
-        case .files: return "folder"; case .visuals: return "photo.on.rectangle.angled"; case .git: return "arrow.triangle.branch"; case .machines: return "desktopcomputer"; case .settings: return "gearshape"
+        case .workspace: return "rectangle.split.3x1"; case .agents: return "sparkles"; case .terminal: return "terminal"; case .files: return "folder"
+        case .visuals: return "chart.xyaxis.line"; case .git: return "arrow.triangle.branch"; case .desktop: return "display"
+        case .machines: return "desktopcomputer"; case .settings: return "gearshape"
         }
     }
-    /// ⌘1…⌘9 for the first nine sections (a two-digit Character would trap).
-    var shortcut: KeyEquivalent? {
-        let n = AppSection.allCases.firstIndex(of: self)! + 1
-        return n <= 9 ? KeyEquivalent(Character(String(n))) : nil
-    }
 }
+
+enum AppSheet: String, Identifiable { case machines, settings; var id: String { rawValue } }
+enum PhoneTab: String, CaseIterable { case workspace, agents, desktop, more }
 
 /// What the Follow Agent panel should show, derived only from real events.
 struct FollowFocus: Equatable {
@@ -58,22 +61,18 @@ final class AppModel {
     var eventTick = 0                          // bumps on every live event
     var banner: TimelineEvent?
 
-    // Navigation
-    var section: AppSection = .home
-    var workspaceProject: String?
+    // Navigation: one workspace, one desktop, sheets for the rest.
+    let workspace: WorkspaceStore
+    let desktop: DesktopStore
+    var sheet: AppSheet?
+    var phoneTab: PhoneTab = .workspace
+    var workspaceProject: String? { workspace.projectId }
     var focusedAgent: String?
-    var studioAgent: String?                   // agent whose live studio is open (over the section)
     var filesProject: String?
     var showLauncher = false
     var launcherProject: String?
     var showSwitcher = false
-    var pendingTerminalAttach: String?         // tmux session to open in Terminal
-    /// Full sidebar vs icon rail on wide windows. The rail is always visible,
-    /// so collapsing can never strand navigation, whatever was saved.
-    var sidebarExpanded: Bool = UserDefaults.standard.object(forKey: "sidebar.expanded") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(sidebarExpanded, forKey: "sidebar.expanded") }
-    }
-    var sidebarOverlay = false                 // narrow windows: full sidebar over the content (not saved)
+    var showQuickOpen = false
     var focusApproval = false                  // opened from an approval notification
 
     // Follow Agent
@@ -82,10 +81,13 @@ final class AppModel {
     var followPinned: FollowFocus.View?
     var followFocus: FollowFocus?
 
+    @ObservationIgnored var pendingPreset: WorkspaceLayout.Preset?
     private var refreshTask: Task<Void, Never>?
     private var fixtureStream: Task<Void, Never>?
 
     init() {
+        workspace = WorkspaceStore()
+        desktop = DesktopStore()
         let args = ProcessInfo.processInfo.arguments
         let fx = args.contains("-UITestFixtures")
         fixtures = fx
@@ -102,10 +104,9 @@ final class AppModel {
         // SSH machines get their real (tunnel) address in connect().
         let base = active?.kind == .relay ? CloudAuth.machineBase(active?.cloudId ?? "") : url
         client = GatewayClient(base: base, token: token, transport: fx ? FixtureTransport() : nil)
-        if let s = UserDefaults.standard.string(forKey: "section"), let sec = AppSection(rawValue: s) { section = sec }
-        workspaceProject = UserDefaults.standard.string(forKey: "workspaceProject")
-        if fx, let i = args.firstIndex(of: "-section"), i + 1 < args.count, let s = AppSection(rawValue: args[i + 1]) { section = s }
-        if fx, let i = args.firstIndex(of: "-studio"), i + 1 < args.count { studioAgent = args[i + 1] }
+        if fx, let i = args.firstIndex(of: "-project"), i + 1 < args.count { workspace.open(project: args[i + 1]) }
+        if fx, let i = args.firstIndex(of: "-sheet"), i + 1 < args.count { sheet = AppSheet(rawValue: args[i + 1]) }
+        if fx, let i = args.firstIndex(of: "-preset"), i + 1 < args.count, let p = WorkspaceLayout.Preset(rawValue: args[i + 1]) { pendingPreset = p }
         if token != nil { phase = .connecting }
     }
 
@@ -149,6 +150,7 @@ final class AppModel {
     func unpair() {
         stream?.stop(); stream = nil
         refreshTask?.cancel()
+        desktop.teardown()
         if let m = activeMachine, m.kind != .relay {
             MachineStore.remove(m.id)
             SSHTunnels.shared.drop(m.id)
@@ -182,8 +184,9 @@ final class AppModel {
         MachineStore.activeId = m.id
         machines = MachineStore.all
         activeMachine = m
-        overview = nil; projects = []; agents = []; liveEvents = []; followFocus = nil; studioAgent = nil; focusedAgent = nil
-        workspaceProject = nil; filesProject = nil
+        overview = nil; projects = []; agents = []; liveEvents = []; followFocus = nil; focusedAgent = nil
+        desktop.teardown()
+        workspace.open(project: nil); filesProject = nil
         if let u = m.url, let url = URL(string: u) { serverURL = url }
         client = GatewayClient(base: m.kind == .relay ? CloudAuth.machineBase(m.cloudId ?? "") : (URL(string: m.url ?? "") ?? serverURL), token: m.token)
         WebSessionCookie.reset()
@@ -223,6 +226,9 @@ final class AppModel {
             _ = try await client.get("/api/me", as: Me.self)
             phase = .ready
             await refreshAll()
+            if workspace.projectId == nil || project(workspace.projectId) == nil, let first = projects.first(where: { ($0.activeAgents ?? 0) > 0 }) ?? projects.first { workspace.open(project: first.id) }
+            if let p = pendingPreset { workspace.apply(p); pendingPreset = nil }
+            if !fixtures, desktop.wasActive, !desktop.active { desktop.open(client: client, machine: activeMachine?.id) }
             startStream()
             startRefreshLoop()
             if !fixtures { Task { await Notifier.shared.syncRegistration() } }
@@ -263,7 +269,7 @@ final class AppModel {
     }
 
     func suspend() { stream?.stop(); refreshTask?.cancel(); fixtureStream?.cancel() }
-    func resume() { Task { await connect() } }
+    func resume() { Task { await connect(); desktop.resume() } }
 
     private func startRefreshLoop() {
         refreshTask?.cancel()
@@ -271,7 +277,6 @@ final class AppModel {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 await self?.refreshAgents()
-                if self?.section == .home { await self?.refreshOverview() }
             }
         }
     }
@@ -294,6 +299,12 @@ final class AppModel {
         if liveEvents.count > 600 { liveEvents.removeFirst(liveEvents.count - 600) }
         eventTick &+= 1
         updateFollow(with: ev)
+        // An agent driving the browser: bring the desktop up (never steals
+        // the screen: it opens floating, or grows from the mini thumbnail).
+        if !fixtures, ev.follow?["view"]?.string == "vnc", desktop.followAgents, !followPaused,
+           workspace.projectId == nil || ev.project == nil || ev.project == workspace.projectId {
+            showDesktop(follow: true)
+        }
         if ev.kind.hasPrefix("agent.approval") || ev.kind == "agent.started" || ev.kind == "agent.ended" || ev.kind == "agent.done" {
             Task { await refreshAgents() }
         }
@@ -326,7 +337,7 @@ final class AppModel {
     func updateFollow(with ev: TimelineEvent) {
         guard !followPaused, let session = ev.session else { return }
         if let followAgent, followAgent != session { return }
-        if followAgent == nil, let wp = workspaceProject, section == .workspaces, ev.project != wp { return }
+        if followAgent == nil, let wp = workspaceProject, ev.project != wp { return }
         guard let raw = ev.follow?["view"]?.string, let view = FollowFocus.View(rawValue: raw) else { return }
         if let pinned = followPinned, pinned != view { return }
         followFocus = FollowFocus(view: view, event: ev)
@@ -335,14 +346,75 @@ final class AppModel {
     func project(_ id: String?) -> Project? { projects.first { $0.id == id } }
     func agent(_ id: String?) -> Agent? { agents.first { $0.id == id } }
 
-    func go(_ s: AppSection) { studioAgent = nil; section = s; UserDefaults.standard.set(s.rawValue, forKey: "section") }
+    // MARK: Navigation (everything opens inside the workspace)
+
+    func go(_ s: AppSection) {
+        switch s {
+        case .machines: sheet = .machines; return
+        case .settings: sheet = .settings; return
+        default: sheet = nil
+        }
+        switch s {
+        case .workspace: phoneTab = .workspace
+        case .agents:
+            if Device.isPhone { phoneTab = .agents } else { workspace.navigator = .agents; workspace.navigatorVisible = true }
+        case .terminal: phoneTab = .workspace; workspace.reveal(.terminal)
+        case .files: phoneTab = .workspace; workspace.navigator = .files; workspace.navigatorVisible = true; workspace.reveal(.editor)
+        case .visuals: phoneTab = .workspace; workspace.reveal(.visualiser)
+        case .git: phoneTab = .workspace; workspace.navigator = .git; workspace.navigatorVisible = true
+        case .desktop: showDesktop(follow: false)
+        case .machines, .settings: break
+        }
+    }
+
     func openWorkspace(_ id: String) {
-        workspaceProject = id
-        UserDefaults.standard.set(id, forKey: "workspaceProject")
-        go(.workspaces)
+        workspace.open(project: id)
+        phoneTab = .workspace; sheet = nil
         Task { _ = try? await client.send("POST", "/api/projects/\(id)/watch", ["minutes": 60], as: WatchState.self) }
     }
-    func openStudio(_ id: String) { studioAgent = id }
-    func openAgent(_ id: String) { focusedAgent = id; go(.agents) }
-    func attachTerminal(_ tmux: String) { pendingTerminalAttach = tmux; go(.terminal) }
+
+    /// Open a file in the editor panel (switching project if needed).
+    func openFile(project: String, path: String, line: Int? = nil) {
+        if workspace.projectId != project { openWorkspace(project) }
+        filesProject = project
+        FilesState.shared.open(project: project, path: path, line: line)
+        phoneTab = .workspace; sheet = nil
+        workspace.reveal(.editor)
+    }
+
+    /// Show a tmux session (an agent's, a build's, a login) in a terminal
+    /// panel; nil opens a new shell.
+    func showTerminal(tmux: String?, title: String? = nil) {
+        phoneTab = .workspace; sheet = nil
+        if let tmux {
+            var cfg = ["tmux": tmux]
+            if let title { cfg["title"] = title }
+            workspace.reveal(.terminal, config: cfg) { $0.config["tmux"] == tmux }
+        } else {
+            workspace.add(.terminal, beside: workspace.layout.slots.first { $0.kind == .terminal }?.id)
+        }
+    }
+
+    /// The agent's live panel, in its project's workspace.
+    func showAgent(_ id: String) {
+        if let p = agent(id)?.project, p != workspace.projectId, project(p) != nil { openWorkspace(p) }
+        phoneTab = .workspace; sheet = nil
+        workspace.reveal(.agent, config: ["agent": id]) { $0.config["agent"] == id || $0.config["agent"] == nil }
+    }
+
+    func showDesktop(follow: Bool) {
+        if !desktop.active {
+            desktop.open(client: client, machine: activeMachine?.id, presentation: follow && !Device.isPhone ? .floating : nil)
+        } else if desktop.presentation == .mini {
+            desktop.presentation = .floating
+        }
+        if Device.isPhone && !follow { phoneTab = .desktop }
+    }
+
+    func toggleDesktop() { if desktop.active { desktop.close() } else { showDesktop(follow: false) } }
+
+    func openAgent(_ id: String) {
+        if Device.isPhone { focusedAgent = id; phoneTab = .agents; sheet = nil } else { showAgent(id) }
+    }
+    func attachTerminal(_ tmux: String) { showTerminal(tmux: tmux) }
 }

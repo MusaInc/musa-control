@@ -92,7 +92,10 @@ struct FollowContent: View {
     var body: some View {
         switch focus.view {
         case .vnc:
-            RemoteDesktopPanel(initialDisplay: "99", compact: true)
+            VStack(spacing: 12) {
+                EmptyNote(icon: "display", text: "The agent is using the browser", detail: focus.event.title)
+                Button { app.showDesktop(follow: false) } label: { Label("Show Remote Desktop", systemImage: "display") }.buttonStyle(.borderedProminent).tint(Theme.accent)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
         case .preview:
             if let p = app.locate(focus.event.detail?["cwd"]?.string)?.project.id ?? focus.event.project {
                 PreviewPanel(projectId: p)
@@ -182,7 +185,7 @@ struct EvidenceView: View {
                 Text(app.locate(path)?.rel ?? path).font(Theme.monoSmall).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 if let loc = app.locate(path) {
-                    Button("Open") { app.filesProject = loc.project.id; FilesState.shared.open(project: loc.project.id, path: loc.rel); app.go(.files) }.font(Theme.caption)
+                    Button("Open") { app.openFile(project: loc.project.id, path: loc.rel) }.font(Theme.caption)
                 }
             }
             .padding(.horizontal, 10).frame(height: 28).background(Theme.bg)

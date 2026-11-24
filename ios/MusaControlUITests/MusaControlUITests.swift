@@ -1,14 +1,15 @@
 import XCTest
 
-/// Drives the app with fixture data captured from the real gateway and keeps
-/// a screenshot of every section in both orientations for visual review.
+/// Drives the iPad app with fixture data captured from the real gateway and
+/// keeps screenshots of the unified workspace for visual review.
 final class MusaControlUITests: XCTestCase {
     override func setUp() { continueAfterFailure = true }
 
-    func launch(_ section: String, orientation: UIDeviceOrientation, appearance: String = "dark", extra: [String] = []) -> XCUIApplication {
+    func launch(orientation: UIDeviceOrientation = .landscapeLeft, appearance: String = "dark", project: String? = "cityswing", extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestFixtures", "-section", section, "-appearance", appearance] + extra
+        app.launchArguments = ["-UITestFixtures", "-appearance", appearance, "-desktop.active", "NO", "-ws.navigatorVisible", "YES"]
+            + (project.map { ["-project", $0] } ?? []) + extra
         app.launch()
         // Apply rotation after launch as well: SpringBoard and the app can
         // otherwise disagree about the screen orientation on the simulator.
@@ -29,225 +30,127 @@ final class MusaControlUITests: XCTestCase {
         add(a)
     }
 
-    func testEverySectionLandscapeAndPortrait() {
+    func el(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+
+    /// The workspace in both orientations and appearances, with each preset.
+    func testWorkspaceLayouts() {
         for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
             for appearance in ["dark", "light"] {
-                let sections = orientation == .portrait && appearance == "light" ? ["home", "agents", "settings"] : ["home", "workspaces", "agents", "terminal", "files", "visuals", "git", "machines", "settings"]
-                for s in sections {
-                    let app = launch(s, orientation: orientation, appearance: appearance)
-                    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-                    sleep(3)
-                    snap(app, "\(tag)-\(appearance)-\(s)")
-                    app.terminate()
-                }
-            }
-        }
-    }
-
-    /// The reported bug: a dismissed sidebar disappeared with no way back.
-    /// Collapse → navigate → restart → navigation still reachable → restore.
-    func testSidebarCanAlwaysBeRestored() {
-        var app = launch("home", orientation: .landscapeLeft, extra: ["-sidebar.expanded", "YES"])
-        let toggle = app.buttons["sidebar.toggle"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 6), "sidebar toggle visible")
-        snap(app, "sidebar-1-expanded")
-        toggle.tap(); sleep(1)
-        snap(app, "sidebar-2-collapsed-rail")
-        XCTAssertTrue(app.buttons["sidebar.agents"].exists, "rail keeps navigation when collapsed")
-        app.buttons["sidebar.agents"].tap(); sleep(1)
-        XCTAssertTrue(app.buttons["sidebar.toggle"].exists, "toggle survives switching screens")
-        app.terminate()
-
-        // Restart: the collapsed preference is kept, navigation is still there.
-        app = launch("agents", orientation: .landscapeLeft)
-        XCTAssertTrue(app.buttons["sidebar.toggle"].waitForExistence(timeout: 6), "toggle after restart")
-        XCTAssertTrue(app.buttons["sidebar.files"].exists, "rail after restart")
-        snap(app, "sidebar-3-after-restart")
-        app.buttons["sidebar.toggle"].tap(); sleep(1)
-        XCTAssertTrue(app.staticTexts["Musa Control"].waitForExistence(timeout: 3), "full sidebar restored")
-        snap(app, "sidebar-4-restored")
-        app.terminate()
-
-        // Portrait: rail and toggle are still reachable.
-        app = launch("home", orientation: .portrait)
-        XCTAssertTrue(app.buttons["sidebar.toggle"].waitForExistence(timeout: 6), "toggle in portrait")
-        XCTAssertTrue(app.buttons["sidebar.settings"].exists)
-        snap(app, "sidebar-5-portrait")
-        app.terminate()
-    }
-
-    func testAgentActivityRendering() {
-        for appearance in ["dark", "light"] {
-            let app = launch("agents", orientation: .landscapeLeft, appearance: appearance)
-            sleep(4)
-            snap(app, "agent-activity-\(appearance)")
-            app.swipeDown(); sleep(1)
-            snap(app, "agent-activity-scrolled-\(appearance)")
-            app.terminate()
-        }
-        let app = launch("agents", orientation: .portrait)
-        sleep(4)
-        snap(app, "agent-activity-portrait")
-    }
-
-    func testNavigationAndLauncher() {
-        let app = launch("home", orientation: .landscapeLeft)
-        sleep(2)
-        for s in ["agents", "files", "git", "visuals"] {
-            let b = app.buttons["sidebar.\(s)"]
-            if b.waitForExistence(timeout: 5) { b.tap(); sleep(1); snap(app, "nav-\(s)") } else { XCTFail("sidebar.\(s) missing") }
-        }
-        app.buttons["sidebar.home"].tap()
-        let newTask = app.buttons["home.newTask"]
-        XCTAssertTrue(newTask.waitForExistence(timeout: 5))
-        newTask.tap()
-        XCTAssertTrue(app.buttons["launcher.start"].waitForExistence(timeout: 5))
-        snap(app, "launcher")
-    }
-
-    func testManualSearchAndNavigatorRecovery() {
-        let app = launch("workspaces", orientation: .landscapeLeft)
-        XCTAssertTrue(app.buttons["project.cityswing"].waitForExistence(timeout: 8))
-        app.buttons["project.cityswing"].tap()
-        XCTAssertTrue(app.buttons["Code"].waitForExistence(timeout: 8))
-        app.buttons["Code"].tap()
-        XCTAssertTrue(app.buttons["Restore project navigator"].exists)
-        app.buttons["Search project"].tap()
-        XCTAssertTrue(app.textFields["Find file"].waitForExistence(timeout: 5))
-        app.buttons["Done"].tap()
-        app.buttons["Restore project navigator"].tap()
-        XCUIDevice.shared.orientation = .portrait
-        XCTAssertTrue(app.buttons["Restore project navigator"].waitForExistence(timeout: 5))
-        snap(app, "manual-workspace-portrait")
-    }
-
-    func testWorkspaceOpensWithPanels() {
-        let app = launch("workspaces", orientation: .landscapeLeft)
-        let card = app.buttons["project.cityswing"]
-        if card.waitForExistence(timeout: 6) { card.tap() }
-        sleep(3)
-        snap(app, "workspace-cityswing")
-        XCTAssertTrue(app.buttons["workspace.addPanel"].waitForExistence(timeout: 5))
-    }
-
-    /// Active agents in the sidebar open a live studio that replays real work.
-    func testAgentStudio() {
-        for appearance in ["dark", "light"] {
-            let app = launch("home", orientation: .landscapeLeft, appearance: appearance, extra: ["-sidebar.expanded", "YES"])
-            let row = app.buttons["sidebar.agent.codex:sample-2"]
-            XCTAssertTrue(row.waitForExistence(timeout: 8), "running agent listed in the sidebar")
-            snap(app, "studio-sidebar-\(appearance)")
-            row.tap()
-            XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 6), "studio opens")
-            for t in [2, 5, 9] { sleep(t == 2 ? 2 : 3); snap(app, "studio-\(appearance)-\(t)s") }
-            app.buttons["studio.close"].tap(); sleep(1)
-            XCTAssertFalse(app.buttons["studio.close"].exists, "studio closes")
-            app.terminate()
-        }
-        let app = launch("home", orientation: .portrait, extra: ["-studio", "claude:sample-1"])
-        sleep(6)
-        snap(app, "studio-portrait-approval")
-    }
-
-    /// Command Deck: live tiles sized by activity, approval up front; a tile
-    /// grows into the studio and shrinks back.
-    func testCommandDeck() {
-        for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
-            for appearance in ["dark", "light"] {
-                let app = launch("deck", orientation: orientation, appearance: appearance)
-                XCTAssertTrue(app.buttons["deck.tile.claude:sample-1"].waitForExistence(timeout: 8), "approval tile on the deck")
+                let app = launch(orientation: orientation, appearance: appearance)
+                XCTAssertTrue(el(app, "workspace.project").waitForExistence(timeout: 10), "top bar")
+                XCTAssertTrue(el(app, "status.keyboard").exists, "status bar shows keyboard focus")
                 sleep(3)
-                snap(app, "deck-\(tag)-\(appearance)")
-                if appearance == "dark" { sleep(6); snap(app, "deck-\(tag)-\(appearance)-later") }
+                snap(app, "\(tag)-\(appearance)-workspace")
+                if appearance == "dark" {
+                    for p in ["code", "visual", "review", "agent"] where orientation == .landscapeLeft {
+                        el(app, "preset.\(p)").tap(); sleep(2)
+                        snap(app, "\(tag)-preset-\(p)")
+                    }
+                }
                 app.terminate()
             }
         }
-        let app = launch("deck", orientation: .landscapeLeft)
-        let tile = app.buttons["deck.tile.codex:sample-2"]
-        XCTAssertTrue(tile.waitForExistence(timeout: 8), "working agent has a tile")
-        XCTAssertTrue(app.buttons["deck.chip.claude:sample-4"].exists, "ended agent settles into a chip")
-        tile.tap()
-        snap(app, "deck-expanding")
-        XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 6), "tile expands into the studio")
-        sleep(5)
-        snap(app, "deck-expanded-studio")
-        app.buttons["studio.close"].tap()
-        XCTAssertTrue(app.buttons["deck.tile.codex:sample-2"].waitForExistence(timeout: 5), "studio shrinks back into the deck")
-        sleep(1)
-        snap(app, "deck-after-close")
     }
 
-    /// Studio 2.0: windows open for what the agent does (tests → matrix,
-    /// commands → runs, edits → diff + files touched); pin, pop out, dock.
-    func testStudioSmartWindows() {
-        for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
-            let app = launch("deck", orientation: orientation, extra: ["-studio", "codex:sample-5"])
-            XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8), "studio opens")
-            sleep(4)
-            snap(app, "studio2-\(tag)-tests-4s")
-            sleep(5)
-            snap(app, "studio2-\(tag)-tests-9s")
-            if tag == "landscape" {
-                let pin = app.buttons["studio.pin.editor"]
-                if pin.waitForExistence(timeout: 3) { pin.tap(); sleep(1); snap(app, "studio2-pinned-editor") }
-                let runs = app.descendants(matching: .any)["studio.window.runs"]
-                if runs.waitForExistence(timeout: 3) {
-                    let bar = runs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
-                    bar.press(forDuration: 0.2, thenDragTo: bar.withOffset(CGVector(dx: -320, dy: 160)))
-                    sleep(1)
-                    snap(app, "studio2-popped-runs")
-                }
-                for chip in ["files", "diff", "plan", "thought"] {
-                    let b = app.buttons["studio.dock.\(chip)"]
-                    if b.exists { b.tap(); sleep(1); snap(app, "studio2-dock-\(chip)"); break }
-                }
-            }
-            app.terminate()
+    /// Navigator tabs: files, agents, source control; tapping the active
+    /// one hides the navigator and it always comes back.
+    func testNavigator() {
+        let app = launch()
+        for t in ["files", "agents", "git"] {
+            let b = el(app, "nav.\(t)")
+            XCTAssertTrue(b.waitForExistence(timeout: 8), "nav.\(t)")
+            b.tap(); sleep(2)
+            snap(app, "navigator-\(t)")
         }
-        let app = launch("deck", orientation: .landscapeLeft, appearance: "light", extra: ["-studio", "codex:sample-2"])
-        XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8))
-        sleep(7)
-        snap(app, "studio2-light-editing")
+        el(app, "nav.git").tap(); sleep(1)       // hide
+        snap(app, "navigator-hidden")
+        el(app, "nav.files").tap(); sleep(1)     // back
+        XCTAssertTrue(el(app, "nav.files").isSelected || app.textFields.firstMatch.exists)
     }
 
-    func testStudioLiveWorkspace() {
-        for (orientation, tag) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
-            let app = launch("deck", orientation: orientation, extra: ["-studio", "codex:sample-5"])
-            XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8))
-            XCTAssertTrue(app.descendants(matching: .any)["studio.narration"].waitForExistence(timeout: 5))
-            XCTAssertFalse(app.descendants(matching: .any)["studio.scrub.track"].exists)
-            let surface = app.buttons["studio.surface"]
-            XCTAssertTrue(surface.waitForExistence(timeout: 5))
-            sleep(3)
-            let evidence = app.descendants(matching: .any)["studio.evidence"].firstMatch
-            XCTAssertTrue(evidence.waitForExistence(timeout: 5))
-            let bounds = evidence.frame
-            let window = app.windows.firstMatch.frame
-            XCTAssertTrue(bounds.width.isFinite && bounds.height.isFinite)
-            XCTAssertGreaterThan(bounds.width, 200)
-            XCTAssertLessThanOrEqual(bounds.maxX, window.maxX + 2)
-            XCTAssertLessThanOrEqual(bounds.maxY, window.maxY + 2)
-            snap(app, "live-workspace-\(tag)")
-            surface.tap()
-            XCTAssertTrue(app.buttons["Browser / game"].waitForExistence(timeout: 3))
-            app.buttons["Browser / game"].tap()
-            sleep(2)
-            XCTAssertTrue(app.descendants(matching: .any)["studio.narration"].exists)
-            snap(app, "live-desktop-\(tag)")
-            app.terminate()
+    /// The agent panel follows real events; Steps, Files and Terminal show
+    /// the same session's evidence; Follow pauses and resumes.
+    func testAgentLivePanel() {
+        let app = launch(extra: ["-preset", "agent"])
+        XCTAssertTrue(el(app, "panel.agent").waitForExistence(timeout: 10))
+        sleep(4)
+        snap(app, "agent-live")
+        for s in ["steps", "editor", "terminal"] {
+            let b = el(app, "agent.stage.\(s)")
+            if b.waitForExistence(timeout: 4) { b.tap(); sleep(2); snap(app, "agent-stage-\(s)") }
         }
+        let follow = el(app, "agent.follow")
+        if follow.exists { follow.tap(); sleep(1); snap(app, "agent-follow-resumed") }
+    }
+
+    /// Remote Desktop stays up (same session) across layouts and while
+    /// sheets open over the workspace.
+    func testRemoteDesktopPersists() {
+        let app = launch()
+        let toggle = el(app, "desktop.toggle")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 8))
+        toggle.tap(); sleep(2)
+        XCTAssertTrue(el(app, "desktop.display").waitForExistence(timeout: 5), "desktop toolbar")
+        snap(app, "desktop-split")
+        el(app, "desktop.layout.floating").tap(); sleep(2)
+        XCTAssertTrue(el(app, "desktop.floating").waitForExistence(timeout: 4))
+        snap(app, "desktop-floating")
+        el(app, "nav.settings").tap(); sleep(2)
+        snap(app, "desktop-over-settings")
+        app.buttons["Done"].firstMatch.tap(); sleep(1)
+        XCTAssertTrue(el(app, "desktop.floating").exists, "still open after a sheet")
+        el(app, "desktop.layout.mini").tap(); sleep(2)
+        XCTAssertTrue(el(app, "desktop.mini").waitForExistence(timeout: 4))
+        snap(app, "desktop-mini")
+        el(app, "preset.code").tap(); sleep(1)
+        XCTAssertTrue(el(app, "desktop.mini").exists, "survives layout changes")
+        el(app, "desktop.mini").tap(); sleep(1)
+        el(app, "desktop.layout.full").tap(); sleep(2)
+        snap(app, "desktop-full")
+        el(app, "desktop.close").tap(); sleep(1)
+        XCTAssertFalse(el(app, "desktop.display").exists)
+    }
+
+    /// Hardware keyboard: app shortcuts use ⌘-digits, ⇧⌘ and ⌃⌘ only.
+    func testKeyboardShortcuts() {
+        let app = launch()
+        XCTAssertTrue(el(app, "workspace.project").waitForExistence(timeout: 10))
+        app.typeKey("d", modifierFlags: [.control, .command]); sleep(2)
+        XCTAssertTrue(el(app, "desktop.display").waitForExistence(timeout: 4), "⌃⌘D opens the desktop")
+        app.typeKey("p", modifierFlags: [.control, .command]); sleep(1)
+        XCTAssertTrue(el(app, "desktop.floating").waitForExistence(timeout: 4), "⌃⌘P floats it")
+        app.typeKey("d", modifierFlags: [.control, .command]); sleep(1)
+        XCTAssertFalse(el(app, "desktop.display").exists, "⌃⌘D closes it")
+        app.typeKey("1", modifierFlags: [.control, .command]); sleep(1)
+        XCTAssertTrue(el(app, "panel.editor").waitForExistence(timeout: 4), "⌃⌘1 = Code layout")
+        app.typeKey("t", modifierFlags: .command); sleep(2)
+        snap(app, "keyboard-new-terminal")
+        app.typeKey("0", modifierFlags: .command); sleep(1)
+        snap(app, "keyboard-navigator-toggled")
+        app.typeKey("p", modifierFlags: .command); sleep(1)
+        snap(app, "keyboard-quick-open")
+    }
+
+    func testMachinesAndSettingsSheets() {
+        let app = launch()
+        el(app, "nav.machines").tap()
+        XCTAssertTrue(app.staticTexts["Musa Studios VPS"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Claude Code"].waitForExistence(timeout: 8))
+        snap(app, "machines-sheet")
+        app.buttons["Done"].firstMatch.tap(); sleep(1)
+        el(app, "machine.switcher").tap(); sleep(1)
+        snap(app, "account-menu")
     }
 
     /// First run for a new user: welcome → add a computer → SSH form.
     func testOnboardingAndAddComputer() {
         for appearance in ["light", "dark"] {
-            let app = launch("home", orientation: .landscapeLeft, appearance: appearance, extra: ["-onboarding"])
+            let app = launch(appearance: appearance, project: nil, extra: ["-onboarding"])
             XCTAssertTrue(app.buttons["welcome.ssh"].waitForExistence(timeout: 10))
             XCTAssertTrue(app.buttons["welcome.email"].exists)
             snap(app, "onboarding-\(appearance)-welcome")
             app.buttons["welcome.ssh"].tap()
             XCTAssertTrue(app.buttons["add.linux"].waitForExistence(timeout: 5))
-            snap(app, "onboarding-\(appearance)-add")
             app.buttons["add.linux"].tap()
             XCTAssertTrue(app.textFields["ssh.host"].waitForExistence(timeout: 5))
             snap(app, "onboarding-\(appearance)-ssh")
@@ -256,7 +159,7 @@ final class MusaControlUITests: XCTestCase {
     }
 
     func testHostedWorkspaceOnboarding() {
-        let app = launch("home", orientation: .landscapeLeft, extra: ["-onboarding"])
+        let app = launch(project: nil, extra: ["-onboarding"])
         XCTAssertTrue(app.buttons["welcome.hosted"].waitForExistence(timeout: 10))
         app.buttons["welcome.hosted"].tap()
         XCTAssertTrue(app.textFields["hosted.address"].waitForExistence(timeout: 5))
@@ -264,13 +167,5 @@ final class MusaControlUITests: XCTestCase {
         XCTAssertFalse(app.buttons["hosted.connect"].isEnabled)
         XCTAssertFalse(app.textFields["ssh.host"].exists)
         snap(app, "hafsa-hosted-onboarding")
-    }
-
-    func testMachinesAndProviders() {
-        let app = launch("machines", orientation: .landscapeLeft, appearance: "dark")
-        XCTAssertTrue(app.staticTexts["Musa Studios VPS"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Claude Code"].waitForExistence(timeout: 8))
-        snap(app, "machines-dark")
-        app.terminate()
     }
 }

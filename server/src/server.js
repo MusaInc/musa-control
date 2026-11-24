@@ -17,6 +17,7 @@ import { createWatcher } from "./watcher.js";
 import { createScreenshots } from "./screenshots.js";
 import { createAgents } from "./agents.js";
 import { createVnc } from "./vnc.js";
+import { createVisuals } from "./visuals.js";
 import { createBuilds } from "./builds.js";
 import { createGithub } from "./github.js";
 import { createSystem } from "./system.js";
@@ -77,8 +78,9 @@ export function createServer(overrides = {}) {
   const screenshots = createScreenshots(cfg, db, projects, events);
   const watcher = createWatcher(cfg, db, projects, events, screenshots);
   const providers = createProviders(cfg, events);
-  const agents = createAgents(cfg, db, projects, events, { watcher, screenshots, providerEnv: providers.envFor });
+  const agents = createAgents(cfg, db, projects, events, { watcher, screenshots, providerEnv: providers.envFor, previewDir: (id) => path.join(cfg.dataDir, "visuals", String(id).replace(/[^A-Za-z0-9._-]/g, "_")) });
   const vnc = createVnc(cfg, events);
+  const visuals = createVisuals(cfg, projects, events);
   const builds = createBuilds(cfg, db, projects, events);
   const github = createGithub(events);
   const system = createSystem(cfg, events);
@@ -127,7 +129,7 @@ export function createServer(overrides = {}) {
       terminal: Boolean(tmuxBin), terminalOverSocket: Boolean(tmuxBin && py && terminal.available()), agents: Boolean(tmuxBin),
       git: Boolean(git), github: Boolean(gh), remoteDesktop: fs.existsSync(cfg.noVncDir) && Object.keys(cfg.vnc?.known || {}).length > 0,
       previews: Boolean(ss || lsof), services: cfg.services.length > 0, push: push.enabled || Boolean(relay),
-      relay: relay ? relayState.state : "off",
+      relay: relay ? relayState.state : "off", visualiser: true, agentPause: true,
     };
   }
 
@@ -315,6 +317,8 @@ export function createServer(overrides = {}) {
   route("POST", "/api/agents/:id/send", ({ params, body }) => agents.send(decodeURIComponent(params.id), String(body.text || "")));
   route("POST", "/api/agents/:id/approval", ({ params, body }) => agents.answer(decodeURIComponent(params.id), body));
   route("POST", "/api/agents/:id/interrupt", ({ params }) => agents.interrupt(decodeURIComponent(params.id)));
+  route("POST", "/api/agents/:id/pause", ({ params }) => agents.pause(decodeURIComponent(params.id)));
+  route("POST", "/api/agents/:id/resume", ({ params }) => agents.resume(decodeURIComponent(params.id)));
   route("POST", "/api/agents/:id/end", ({ params, body }) => { confirm(body, "end"); return agents.end(decodeURIComponent(params.id)); });
   route("POST", "/api/attachments", async ({ q, req }) => agents.attachFile(q.get("project"), q.get("name"), await readBody(req, 60 * 1024 * 1024)), { raw: true });
 
@@ -379,6 +383,28 @@ export function createServer(overrides = {}) {
 
   // ---------- remote desktop ----------
   route("GET", "/api/vnc/displays", () => vnc.displays());
+
+  // ---------- visualiser ----------
+  // Files are read with the device token by the app's own URL scheme, so
+  // preview pages never share an origin (or cookies) with the gateway.
+  const VIEWER_DIR = path.join(WEB_DIR, "viewer");
+  route("GET", "/api/visuals/status", () => visuals.status());
+  route("POST", "/api/visuals/setup", ({ body }) => { confirm(body, "install the visualiser's Python packages"); return visuals.setup({ packages: Array.isArray(body.packages) ? body.packages : undefined }); });
+  route("GET", "/api/visuals/:project", ({ params }) => visuals.list(params.project));
+  route("GET", "/api/visuals/:project/file", async ({ params, q, req, res }) => {
+    const full = await visuals.file(params.project, q.get("path"));
+    await sendFile(req, res, full, { cache: "no-cache", extra: { "Content-Security-Policy": "sandbox allow-scripts allow-same-origin" } });
+  });
+  route("PUT", "/api/visuals/:project/file", async ({ params, q, req }) => visuals.publish(params.project, q.get("path"), await readBody(req, 200 * 1024 * 1024)), { raw: true });
+  route("DELETE", "/api/visuals/:project/file", ({ params, q }) => visuals.remove(params.project, q.get("path")));
+  route("POST", "/api/visuals/:project/run", ({ params, body }) => visuals.run(params.project, { code: body.code, file: body.file, timeout: body.timeout }), { bodyLimit: 1024 * 1024 });
+  route("GET", "/api/visual-runs/:id", ({ params }) => visuals.getRun(params.id));
+  route("POST", "/api/visual-runs/:id/stop", ({ params }) => visuals.stopRun(params.id));
+  route("GET", "/api/viewer/*", async ({ params, req, res }) => {
+    const full = path.resolve(VIEWER_DIR, params.rest || "model.html");
+    if (!full.startsWith(VIEWER_DIR + "/") || !fs.existsSync(full)) throw Object.assign(new Error("Not found"), { status: 404 });
+    await sendFile(req, res, full, { mime: full.endsWith(".js") ? "text/javascript; charset=utf-8" : full.endsWith(".html") ? "text/html; charset=utf-8" : undefined, cache: "private, max-age=3600" });
+  });
 
   // ---------- web pages for WKWebView (cookie auth) ----------
   route("GET", "/vnc.html", async ({ req, res }) => sendFile(req, res, path.join(WEB_DIR, "vnc.html"), { mime: "text/html; charset=utf-8", cache: "no-store", extra: { "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data: blob:", "X-Frame-Options": "DENY" } }), { cookie: true });
@@ -483,10 +509,10 @@ export function createServer(overrides = {}) {
   async function stop() {
     clearInterval(ghTimer); clearInterval(sysTimer); clearInterval(pruneTimer);
     relay?.stop(); terminal.closeAll();
-    agents.stop(); push.close(); watcher.close(); builds.close(); vnc.closeAll();
+    agents.stop(); push.close(); watcher.close(); builds.close(); vnc.closeAll(); visuals.close();
     await new Promise((r) => server.close(r));
     server.closeAllConnections?.();
     db.close();
   }
-  return { cfg, server, start, stop, db, auth, events, projects, agents, watcher, screenshots, files, push, providers, relay, terminal };
+  return { cfg, server, start, stop, db, auth, events, projects, agents, watcher, screenshots, files, push, providers, relay, terminal, visuals };
 }

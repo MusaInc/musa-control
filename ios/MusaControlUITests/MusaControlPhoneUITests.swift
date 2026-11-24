@@ -1,18 +1,17 @@
 import XCTest
 
-/// iPhone layout: bottom tab bar + More drawer, one pane at a time with Back,
-/// and a screenshot of every section (portrait, both appearances, plus a few
-/// landscape) for visual review. Runs only on an iPhone simulator in CI.
+/// iPhone: the same workspace one panel at a time, plus Agents, Desktop and
+/// More tabs. Runs only on an iPhone simulator in CI.
 final class MusaControlPhoneUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = true
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .phone, "iPhone-only layout tests")
     }
 
-    func launch(_ section: String, orientation: UIDeviceOrientation = .portrait, appearance: String = "dark", extra: [String] = []) -> XCUIApplication {
+    func launch(orientation: UIDeviceOrientation = .portrait, appearance: String = "dark", extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestFixtures", "-section", section, "-appearance", appearance] + extra
+        app.launchArguments = ["-UITestFixtures", "-appearance", appearance, "-project", "cityswing", "-desktop.active", "NO"] + extra
         app.launch()
         return app
     }
@@ -24,130 +23,40 @@ final class MusaControlPhoneUITests: XCTestCase {
         add(a)
     }
 
-    func testEverySectionPortrait() {
+    func testTabs() {
         for appearance in ["dark", "light"] {
-            let sections = appearance == "light" ? ["home", "agents", "git", "settings"] : ["home", "deck", "workspaces", "agents", "terminal", "files", "visuals", "git", "settings"]
-            for s in sections {
-                let app = launch(s, appearance: appearance)
-                XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-                XCTAssertTrue(app.buttons["tab.home"].waitForExistence(timeout: 6), "tab bar on \(s)")
-                sleep(3)
-                snap(app, "portrait-\(appearance)-\(s)")
-                app.terminate()
+            let app = launch(appearance: appearance)
+            for t in ["workspace", "agents", "desktop", "more"] {
+                let b = app.buttons["tab.\(t)"]
+                XCTAssertTrue(b.waitForExistence(timeout: 8), "tab.\(t)")
+                b.tap(); sleep(2)
+                snap(app, "\(appearance)-tab-\(t)")
             }
+            app.terminate()
         }
+    }
+
+    func testPanelsOneAtATime() {
+        let app = launch(extra: ["-preset", "code"])
+        XCTAssertTrue(app.buttons["page.editor"].waitForExistence(timeout: 8))
+        for p in ["editor", "terminal", "agent"] {
+            let b = app.buttons["page.\(p)"]
+            if b.waitForExistence(timeout: 3) { b.tap(); sleep(2); snap(app, "page-\(p)") }
+        }
+    }
+
+    func testAgentListThenDetail() {
+        let app = launch()
+        app.buttons["tab.agents"].tap(); sleep(2)
+        snap(app, "agents-list")
+        let first = app.cells.firstMatch
+        if first.waitForExistence(timeout: 5) { first.tap(); sleep(2); snap(app, "agent-detail") }
     }
 
     func testLandscape() {
-        for s in ["home", "agents", "terminal"] {
-            let app = launch(s, orientation: .landscapeLeft)
-            sleep(3)
-            snap(app, "landscape-\(s)")
-            app.terminate()
-        }
-        XCUIDevice.shared.orientation = .portrait
-    }
-
-    /// Tabs switch sections; More opens every other section and the agents.
-    func testTabBarAndMore() {
-        let app = launch("home")
-        for t in ["deck", "agents", "terminal", "home"] {
-            let b = app.buttons["tab.\(t)"]
-            XCTAssertTrue(b.waitForExistence(timeout: 5), "tab.\(t)")
-            b.tap(); sleep(1)
-            snap(app, "tab-\(t)")
-        }
-        app.buttons["tab.more"].tap()
-        let git = app.buttons["sidebar.git"]
-        XCTAssertTrue(git.waitForExistence(timeout: 4), "More shows every section")
-        snap(app, "more-drawer")
-        git.tap(); sleep(1)
-        XCTAssertFalse(app.buttons["sidebar.git"].isHittable, "drawer closes after navigating")
-        snap(app, "more-git")
-
-        app.buttons["tab.home"].tap()
-        let newTask = app.buttons["home.newTask"]
-        XCTAssertTrue(newTask.waitForExistence(timeout: 5))
-        newTask.tap()
-        XCTAssertTrue(app.buttons["launcher.start"].waitForExistence(timeout: 5), "launcher fits on a phone")
-        snap(app, "launcher")
-    }
-
-    /// Lists fill the screen; picking an item shows it with Back.
-    func testListThenDetail() {
-        let app = launch("agents")
-        let row = app.staticTexts["Sample: add a pause menu"]
-        XCTAssertTrue(row.waitForExistence(timeout: 8), "agent list")
-        snap(app, "agents-list")
-        row.tap(); sleep(2)
-        XCTAssertTrue(app.buttons["back"].waitForExistence(timeout: 4), "detail has Back")
-        XCTAssertTrue(app.textViews["agent.composer"].exists || app.textFields["agent.composer"].exists, "composer visible")
-        snap(app, "agent-detail")
-        app.buttons["back"].tap(); sleep(1)
-        XCTAssertTrue(app.staticTexts["Sample: add a pause menu"].waitForExistence(timeout: 4), "back to the list")
-        app.terminate()
-
-        // Approval waiting: the card is reachable on a phone.
-        let a2 = launch("agents")
-        let waiting = a2.staticTexts["Sample: smooth the swing camera"]
-        if waiting.waitForExistence(timeout: 8) { waiting.tap(); sleep(2); snap(a2, "agent-approval") }
-        a2.terminate()
-
-        // Git: history list → commit diff → Back.
-        let g = launch("git")
+        let app = launch(orientation: .landscapeLeft)
         sleep(3)
-        snap(g, "git-changes")
-        let history = g.buttons["History"]
-        if history.waitForExistence(timeout: 4) {
-            history.tap(); sleep(2)
-            snap(g, "git-history")
-            let firstCell = g.cells.firstMatch
-            if firstCell.waitForExistence(timeout: 4) {
-                firstCell.tap(); sleep(2)
-                XCTAssertTrue(g.buttons["back"].waitForExistence(timeout: 4), "commit diff has Back")
-                snap(g, "git-commit-diff")
-            }
-        }
-    }
-
-    func testAgentStudioOnPhone() {
-        let app = launch("home", extra: ["-studio", "codex:sample-2"])
-        XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 8), "studio opens on a phone")
-        for t in [2, 6] { sleep(UInt32(t == 2 ? 2 : 4)); snap(app, "studio-\(t)s") }
-        app.terminate()
-        // Tests session: the matrix takes the screen, the rest wait in the dock.
-        let t = launch("home", extra: ["-studio", "codex:sample-5"])
-        XCTAssertTrue(t.buttons["studio.close"].waitForExistence(timeout: 8))
-        sleep(8)
-        snap(t, "studio-tests")
-        let chip = t.buttons["studio.dock.runs"]
-        if chip.waitForExistence(timeout: 2) { chip.tap(); sleep(1); snap(t, "studio-dock-runs") }
-    }
-
-    /// Phone deck: swipeable hero cards for the busiest agents, focus cards
-    /// below, settled chips last; a card opens the studio.
-    func testCommandDeckOnPhone() {
-        for appearance in ["dark", "light"] {
-            let app = launch("deck", appearance: appearance)
-            XCTAssertTrue(app.buttons["tab.deck"].waitForExistence(timeout: 6))
-            XCTAssertTrue(app.buttons["deck.tile.claude:sample-1"].waitForExistence(timeout: 8), "approval agent leads")
-            sleep(3)
-            snap(app, "deck-\(appearance)")
-            if appearance == "dark" {
-                app.buttons["deck.tile.claude:sample-1"].swipeLeft(); sleep(1)
-                snap(app, "deck-hero-swiped")
-                app.swipeUp(); sleep(1)
-                snap(app, "deck-scrolled")
-                app.swipeDown(); sleep(1)
-                let card = app.buttons["deck.tile.claude:sample-1"]
-                if card.waitForExistence(timeout: 3) {
-                    card.tap()
-                    XCTAssertTrue(app.buttons["studio.close"].waitForExistence(timeout: 6), "card opens the studio")
-                    sleep(3)
-                    snap(app, "deck-studio")
-                }
-            }
-            app.terminate()
-        }
+        snap(app, "landscape-workspace")
+        XCUIDevice.shared.orientation = .portrait
     }
 }

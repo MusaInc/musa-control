@@ -49,7 +49,7 @@ struct TerminalPane: View {
                         Image(systemName: "lock.trianglebadge.exclamationmark").font(.system(size: 24)).foregroundStyle(Theme.yellow)
                         Text(msg).font(Theme.label).multilineTextAlignment(.center).frame(maxWidth: 420)
                         HStack {
-                            if app.activeMachine?.usesSocketTerminal != true { Button("Open SSH settings") { app.go(.settings) } }
+                            if app.activeMachine?.usesSocketTerminal != true { Button("Open SSH settings") { app.sheet = .settings } }
                             Button("Retry") { session.reconnectNow() }
                         }.font(Theme.label)
                     }
@@ -64,124 +64,5 @@ struct TerminalPane: View {
     }
     var dot: String {
         switch session.state { case .connected: return "idle"; case .connecting, .reconnecting: return "approval"; case .failed: return "failed"; default: return "other" }
-    }
-}
-
-struct TerminalSectionView: View {
-    @Environment(AppModel.self) private var app
-    @Environment(TerminalStore.self) private var store
-    @State private var tmuxSessions: [TmuxSession] = []
-    @Environment(\.compactLayout) private var compact
-
-    var body: some View {
-        VStack(spacing: 0) {
-            tabBar
-            if store.sessions.isEmpty {
-                VStack(spacing: 16) {
-                    EmptyNote(icon: "terminal", text: "No terminal open", detail: "Every tab connects to a persistent terminal on your workspace, so work keeps running if the \(Device.name) disconnects.")
-                    HStack {
-                        Button { store.newShell() } label: { Label("New shell", systemImage: "plus").padding(.horizontal, 14).frame(height: 36).background(Theme.accent, in: RoundedRectangle(cornerRadius: 8)).foregroundStyle(Theme.onAccent) }.buttonStyle(.plain)
-                        attachMenu
-                    }
-                    Spacer()
-                }
-            } else {
-                // Split panes sit side by side, or stacked on a phone.
-                (compact ? AnyLayout(VStackLayout(spacing: 1)) : AnyLayout(HStackLayout(spacing: 1))) {
-                    if let s = store.current { TerminalPane(session: s, showHeader: store.splitWith != nil).id(s.id) }
-                    if let split = store.splitWith, let s2 = store.sessions.first(where: { $0.id == split }), s2.id != store.selected {
-                        TerminalPane(session: s2, showHeader: true).id(s2.id)
-                    }
-                }
-                .background(Theme.line)
-                keyBar
-            }
-        }
-        .background(Theme.bg)
-        .task {
-            tmuxSessions = (try? await app.client.get("/api/tmux", as: TmuxList.self).sessions) ?? []
-            if let t = app.pendingTerminalAttach { store.open(tmux: t); app.pendingTerminalAttach = nil }
-            store.current?.open()
-        }
-        .onChange(of: app.pendingTerminalAttach) { _, t in if let t { store.open(tmux: t); app.pendingTerminalAttach = nil } }
-    }
-
-    var tabBar: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(store.sessions) { s in
-                        HStack(spacing: 6) {
-                            StatusDot(status: s.state == .connected ? "idle" : s.state == .closed ? "other" : "approval", size: 6)
-                            Text(s.title).font(.system(size: 13, weight: store.selected == s.id ? .semibold : .regular)).lineLimit(1)
-                            Button { store.close(s) } label: { Image(systemName: "xmark").font(.system(size: 10.5, weight: .bold)).frame(width: 18, height: 18) }.buttonStyle(.plain).foregroundStyle(Theme.textFaint)
-                        }
-                        .padding(.leading, 10).padding(.trailing, 4).frame(height: 30)
-                        .background(store.selected == s.id ? Theme.surface : .clear, in: RoundedRectangle(cornerRadius: 6))
-                        .contentShape(Rectangle())
-                        .onTapGesture { store.selected = s.id; s.open() }
-                        .contextMenu {
-                            Button { store.splitWith = s.id } label: { Label("Show beside current", systemImage: "rectangle.split.2x1") }
-                            Button { s.reconnectNow() } label: { Label("Reconnect", systemImage: "arrow.clockwise") }
-                            Button { store.close(s) } label: { Label("Close tab (tmux keeps running)", systemImage: "xmark") }
-                        }
-                    }
-                }
-                .padding(4)
-            }
-            Spacer(minLength: 0)
-            attachMenu
-            if compact {
-                Menu {
-                    Button { toggleSplit() } label: { Label(store.splitWith == nil ? "Split (stacked)" : "Close split", systemImage: store.splitWith == nil ? "rectangle.split.1x2" : "rectangle") }
-                    Button { store.setFontSize(max(9, store.fontSize - 1)) } label: { Label("Smaller text", systemImage: "textformat.size.smaller") }
-                    Button { store.setFontSize(min(24, store.fontSize + 1)) } label: { Label("Larger text", systemImage: "textformat.size.larger") }
-                } label: { Image(systemName: "ellipsis.circle").font(.system(size: 15)).frame(width: 34, height: 34) }
-                .accessibilityLabel(Text("Terminal options"))
-            } else {
-                IconButton(systemName: store.splitWith == nil ? "rectangle.split.2x1" : "rectangle", help: "Split (⌘D)") { toggleSplit() }
-                IconButton(systemName: "textformat.size.smaller", help: "Smaller text") { store.setFontSize(max(9, store.fontSize - 1)) }
-                IconButton(systemName: "textformat.size.larger", help: "Larger text") { store.setFontSize(min(24, store.fontSize + 1)) }
-            }
-            IconButton(systemName: "plus", help: "New shell (⌘T)") { store.newShell() }
-        }
-        .padding(.trailing, 6).background(Theme.raised)
-    }
-
-    func toggleSplit() {
-        if store.splitWith == nil { store.splitWith = store.sessions.first { $0.id != store.selected }?.id } else { store.splitWith = nil }
-    }
-
-    var attachMenu: some View {
-        Menu {
-            SwiftUI.Section("tmux sessions on the server") {
-                ForEach(tmuxSessions) { t in
-                    Button { store.open(tmux: t.name) } label: { Label("\(t.name)  ·  \(t.windows) window\(t.windows == 1 ? "" : "s")\(t.attached > 0 ? " · attached" : "")", systemImage: "rectangle.on.rectangle") }
-                }
-            }
-            SwiftUI.Section("New shell in project") {
-                ForEach(app.projects.prefix(30)) { p in Button { store.newShell(directory: p.path, label: p.name) } label: { Label(p.name, systemImage: p.icon) } }
-            }
-        } label: { Label("Attach", systemImage: "link").font(Theme.label).labelStyle(CompactLabelStyle(iconOnly: compact)).padding(.horizontal, 8).frame(height: 30) }
-        .task(id: store.sessions.count) { tmuxSessions = (try? await app.client.get("/api/tmux", as: TmuxList.self).sessions) ?? [] }
-    }
-
-    /// Touch-friendly keys beyond SwiftTerm's own accessory bar.
-    var keyBar: some View {
-        HStack(spacing: 4) {
-            ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-            ForEach([("esc", "\u{1b}"), ("tab", "\t"), ("^C", "\u{03}"), ("^D", "\u{04}"), ("^Z", "\u{1a}"), ("^L", "\u{0c}"), ("^R", "\u{12}"), ("↑", "\u{1b}[A"), ("↓", "\u{1b}[B"), ("←", "\u{1b}[D"), ("→", "\u{1b}[C"), ("tmux ⌃b", "\u{02}"), ("|", "|"), ("~", "~"), ("/", "/")], id: \.0) { k in
-                Button(k.0) { store.current?.send(text: k.1) }
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .frame(minWidth: 36).frame(height: 30).background(Theme.raised, in: RoundedRectangle(cornerRadius: 6))
-                    .buttonStyle(.plain)
-            }
-            }
-            }
-            Button { if let s = UIPasteboard.general.string { store.current?.send(text: s) } } label: { Label("Paste", systemImage: "doc.on.clipboard").labelStyle(CompactLabelStyle(iconOnly: compact)) }
-                .font(Theme.label).buttonStyle(.plain).padding(.horizontal, 8)
-        }
-        .padding(6).background(Theme.surface)
     }
 }

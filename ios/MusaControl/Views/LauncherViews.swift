@@ -12,6 +12,7 @@ struct AgentLauncher: View {
     @State private var project: String?
     @State private var prompt = ""
     @AppStorage("launcher.permissionMode") private var mode = "unattended"
+    @AppStorage("launcher.previewHint") private var previewHint = true
     @State private var busy = false
     @State private var error: String?
     @State private var duplicate: String?
@@ -52,6 +53,11 @@ struct AgentLauncher: View {
                 .lineLimit(4...12).font(.system(size: 14)).focused($focus)
                 .padding(12).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityIdentifier("launcher.prompt")
+            Toggle(isOn: $previewHint) {
+                Text("Tell the agent it can show me charts, images, models and pages in the Visualiser").font(Theme.caption).foregroundStyle(Theme.textDim)
+            }
+            .toggleStyle(.switch).tint(Theme.accent)
+            .help("Adds one line to the first prompt naming $MUSA_PREVIEW_DIR and musa-preview.")
             Text(agent == "gemini" ? "Runs in tmux. Use Open in Terminal to answer Antigravity’s permission prompts." : "Keeps working when you disconnect. Unattended mode allows commands and edits across this computer without approval prompts.")
                 .font(Theme.caption).foregroundStyle(Theme.textFaint)
             if let error {
@@ -120,7 +126,7 @@ struct AgentLauncher: View {
         Task {
             defer { busy = false }
             do {
-                var body: [String: Any] = ["agent": agent, "project": project, "prompt": prompt, "mode": mode, "allowDuplicate": allowDuplicate]
+                var body: [String: Any] = ["agent": agent, "project": project, "prompt": prompt, "mode": mode, "allowDuplicate": allowDuplicate, "previewHint": previewHint]
                 if agent == "gemini" && !geminiModel.isEmpty { body["model"] = geminiModel }
                 let r = try await app.client.send("POST", "/api/agents", body, as: LaunchResult.self)
                 try? await Task.sleep(nanoseconds: 1_800_000_000)
@@ -152,7 +158,8 @@ struct QuickSwitcher: View {
         var out: [Item] = []
         for a in app.agents where a.status != "ended" { out.append(Item(id: "a" + a.id, title: a.title, subtitle: "\(a.agentName) · \(a.statusText)", icon: a.icon) { app.openAgent(a.id) }) }
         for p in app.projects { out.append(Item(id: "p" + p.id, title: p.name, subtitle: "Workspace · \(p.kind)", icon: p.icon) { app.openWorkspace(p.id) }) }
-        for s in AppSection.allCases { out.append(Item(id: "s" + s.rawValue, title: s.title, subtitle: "Section", icon: s.icon) { app.go(s) }) }
+        for s in AppSection.allCases where s != .workspace { out.append(Item(id: "s" + s.rawValue, title: s.title, subtitle: "Open", icon: s.icon) { app.go(s) }) }
+        for k in PanelKind.allCases { out.append(Item(id: "k" + k.rawValue, title: k.title, subtitle: "Panel", icon: k.icon) { app.workspace.reveal(k) }) }
         guard !q.isEmpty else { return out }
         let needle = q.lowercased()
         return out.filter { $0.title.lowercased().contains(needle) || $0.subtitle.lowercased().contains(needle) }
