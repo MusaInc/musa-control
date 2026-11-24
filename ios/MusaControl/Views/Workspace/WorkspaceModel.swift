@@ -20,7 +20,7 @@ enum PanelKind: String, Codable, CaseIterable, Identifiable {
         }
     }
     /// ⌃⌘ shortcut letter to show or focus a panel of this kind.
-    var key: Character { switch self { case .editor: return "e"; case .terminal: return "t"; case .agent: return "a"; case .visualiser: return "v"; case .preview: return "w"; case .builds: return "b" } }
+    var key: Character { switch self { case .editor: return "e"; case .terminal: return "t"; case .agent: return "a"; case .visualiser: return "i"; case .preview: return "u"; case .builds: return "b" } }
 }
 
 struct PanelSlot: Codable, Identifiable, Equatable {

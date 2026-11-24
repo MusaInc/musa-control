@@ -48,7 +48,7 @@ else goes to whatever has the keyboard (shown at the right of the status bar).
 | ⇧⌘F, ⇧⌘E, ⇧⌘A, ⇧⌘G, ⌘0 | Find in project, Files, Agents, Source Control, toggle navigator |
 | ⌘1…⌘9, ⌥⌘← / ⌥⌘→ | Focus panel N, previous / next panel |
 | ⌃⌘1…⌃⌘4 | Code, Agent, Visualise, Review layouts |
-| ⌃⌘E/T/A/V/W/B | Show editor, terminal, agent, visualiser, web preview, builds |
+| ⌃⌘E/T/A/I/U/B | Show editor, terminal, agent, visualiser, web preview, builds |
 | ⌘T, ⌘D, ⌃⌘M, ⌃⌘W | New terminal, split (terminal below), maximise, close panel |
 | ⇧⌘N, ⇧⌘L, ⌘. | New agent task, show agent activity, interrupt agent |
 | ⌃⌘D, ⌃⌘\\, ⌃⌘P, ⌃⌘F, ⌃⌘J | Desktop on/off, beside, floating, full screen, mini |
