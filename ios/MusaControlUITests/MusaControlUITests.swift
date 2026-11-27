@@ -84,7 +84,9 @@ final class MusaControlUITests: XCTestCase {
             XCTAssertTrue(app.buttons["welcome.email"].exists)
             snap(app, "onboarding-welcome-\(appearance)")
             if appearance == "light" {
-                app.buttons["welcome.ssh"].tap(); sleep(1)
+                app.buttons["welcome.ssh"].tap()
+                XCTAssertTrue(app.buttons["add.linux"].waitForExistence(timeout: 5))
+                app.buttons["add.linux"].tap()
                 XCTAssertTrue(app.textFields["ssh.host"].waitForExistence(timeout: 5))
                 snap(app, "onboarding-ssh")
             }
