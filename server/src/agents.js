@@ -611,7 +611,7 @@ export function createAgents(cfg, db, projects, events, { watcher, screenshots, 
     await pollTranscripts();
     await pollProcesses();
     await pollPrompts();
-    timer = setInterval(() => pollTranscripts().catch(() => {}), 1500);
+    timer = setInterval(() => pollTranscripts().catch(() => {}), 1000);
     procTimer = setInterval(() => pollProcesses().catch(() => {}), 4000);
     promptTimer = setInterval(() => pollPrompts().catch(() => {}), 1500);
   }

@@ -1,7 +1,6 @@
 import XCTest
 
-/// iPhone: the same workspace one panel at a time, plus Agents, Desktop and
-/// More tabs. Runs only on an iPhone simulator in CI.
+/// iPhone: four tabs — Agents, Terminal, Files, Settings.
 final class MusaControlPhoneUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = true
@@ -11,7 +10,7 @@ final class MusaControlPhoneUITests: XCTestCase {
     func launch(orientation: UIDeviceOrientation = .portrait, appearance: String = "dark", extra: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestFixtures", "-appearance", appearance, "-project", "cityswing", "-desktop.active", "NO"] + extra
+        app.launchArguments = ["-UITestFixtures", "-appearance", appearance, "-desktop.active", "NO"] + extra
         app.launch()
         return app
     }
@@ -26,22 +25,13 @@ final class MusaControlPhoneUITests: XCTestCase {
     func testTabs() {
         for appearance in ["dark", "light"] {
             let app = launch(appearance: appearance)
-            for t in ["workspace", "agents", "desktop", "more"] {
+            for t in ["agents", "terminal", "files", "settings"] {
                 let b = app.buttons["tab.\(t)"]
                 XCTAssertTrue(b.waitForExistence(timeout: 8), "tab.\(t)")
                 b.tap(); sleep(2)
                 snap(app, "\(appearance)-tab-\(t)")
             }
             app.terminate()
-        }
-    }
-
-    func testPanelsOneAtATime() {
-        let app = launch(extra: ["-preset", "code"])
-        XCTAssertTrue(app.buttons["page.editor"].waitForExistence(timeout: 8))
-        for p in ["editor", "terminal", "agent"] {
-            let b = app.buttons["page.\(p)"]
-            if b.waitForExistence(timeout: 3) { b.tap(); sleep(2); snap(app, "page-\(p)") }
         }
     }
 
@@ -56,7 +46,7 @@ final class MusaControlPhoneUITests: XCTestCase {
     func testLandscape() {
         let app = launch(orientation: .landscapeLeft)
         sleep(3)
-        snap(app, "landscape-workspace")
+        snap(app, "landscape-agents")
         XCUIDevice.shared.orientation = .portrait
     }
 }

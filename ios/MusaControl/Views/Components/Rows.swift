@@ -9,7 +9,7 @@ struct AgentRow: View {
             ZStack(alignment: .bottomTrailing) {
                 Image(systemName: agent.icon).font(.system(size: 14, weight: .medium))
                     .frame(width: 28, height: 28).background(Theme.hover, in: RoundedRectangle(cornerRadius: 7))
-                    .foregroundStyle(agent.agent == "claude" ? Theme.accent : Theme.blue)
+                    .foregroundStyle(agent.tint)
                 StatusDot(status: agent.status, size: 8).offset(x: 3, y: 3)
             }
             VStack(alignment: .leading, spacing: 2) {

@@ -18,7 +18,7 @@ struct SettingsView: View {
             SwiftUI.Section("Connection") {
                 LabeledContent("Computer", value: app.activeMachine?.name ?? "—")
                 LabeledContent(app.activeMachine?.kind == .ssh ? "Tunnel" : "Gateway", value: app.activeMachine?.kind == .ssh ? (app.activeMachine?.subtitle ?? "") : app.client.base.absoluteString)
-                Button("Machines & AI…") { app.go(.machines) }
+                Button("Machines & AI…") { app.sheet = .machines }
                 LabeledContent("Status") { HStack { ConnectionDot(); Text(statusText) } }
                 if let me { LabeledContent("This device", value: me.name); LabeledContent("Token expires", value: Date(timeIntervalSince1970: me.expiresAt / 1000).formatted(date: .abbreviated, time: .omitted)) }
                 Button("Reconnect") { Task { await app.connect() } }
@@ -67,9 +67,8 @@ struct SettingsView: View {
                     Text("Match \(Device.osName)").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
                 }
                 Stepper("Terminal text \(Int(terminals.fontSize)) pt", value: Binding(get: { Double(terminals.fontSize) }, set: { terminals.setFontSize(CGFloat($0)) }), in: 9...24)
-                Button("Reset all workspace layouts") { WorkspaceLayoutStore.resetAll() }
                 Button("Clear image cache") { ImageCache.shared.clear() }
-            } header: { Text("Appearance & workspace") }
+            } header: { Text("Appearance") }
 
             NotificationSettingsSections()
 

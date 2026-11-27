@@ -309,11 +309,30 @@ export function createServer(overrides = {}) {
   route("POST", "/api/agents", ({ body }) => agents.launch(body));
   route("GET", "/api/agents/:id", ({ params }) => agents.get(decodeURIComponent(params.id)));
   route("GET", "/api/agents/:id/screen", ({ params, q }) => agents.screen(decodeURIComponent(params.id), { ansi: q.get("ansi") !== "0", lines: Math.min(+q.get("lines") || 200, 3000) }));
-  route("GET", "/api/agents/:id/timeline", ({ params, q }) => events.query({
-    session: decodeURIComponent(params.id), before: q.get("before"), after: q.get("after"), limit: q.get("limit") || 300,
-  }).map((event) => event.kind === "screenshot.new" && event.detail.source === "antigravity"
-    ? { ...event, kind: "agent.image" }
-    : event));
+  route("GET", "/api/agents/:id/timeline", ({ params, q }) => {
+    const id = decodeURIComponent(params.id);
+    const limit = Math.min(Number(q.get("limit")) || 300, 1000);
+    const sessionEvents = events.query({
+      session: id, before: q.get("before"), after: q.get("after"), limit,
+    }).map((event) => event.kind === "screenshot.new" && event.detail.source === "antigravity"
+      ? { ...event, kind: "agent.image" }
+      : event);
+    // Merge project-scoped visual outputs & build events that occurred during this session's window
+    // so Python visualisations, generated artifacts and builds appear chronologically in the conversation.
+    let agent = null;
+    try { agent = agents.get(id); } catch {}
+    if (!agent?.project) return sessionEvents;
+    const minTs = sessionEvents.length ? Math.min(sessionEvents[0].ts, agent.startedAt || sessionEvents[0].ts) - 60_000 : (agent.startedAt ? agent.startedAt - 60_000 : 0);
+    const maxTs = Math.max(agent.lastActivity || 0, sessionEvents.at(-1)?.ts || 0) + 5 * 60_000;
+    if (!minTs) return sessionEvents;
+    const extras = events.query({
+      project: agent.project, kinds: ["visual.output", "build.started", "build.finished", "build.cancelled"],
+      before: q.get("before"), after: q.get("after"), limit: 100,
+    }).filter((e) => !e.session && e.ts >= minTs && e.ts <= maxTs);
+    if (!extras.length) return sessionEvents;
+    const seen = new Set(sessionEvents.map((e) => e.id));
+    return [...sessionEvents, ...extras.filter((e) => !seen.has(e.id))].sort((a, b) => a.ts - b.ts || (a.id || 0) - (b.id || 0)).slice(-limit);
+  });
   route("POST", "/api/agents/:id/send", ({ params, body }) => agents.send(decodeURIComponent(params.id), String(body.text || "")));
   route("POST", "/api/agents/:id/approval", ({ params, body }) => agents.answer(decodeURIComponent(params.id), body));
   route("POST", "/api/agents/:id/interrupt", ({ params }) => agents.interrupt(decodeURIComponent(params.id)));

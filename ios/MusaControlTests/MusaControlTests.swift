@@ -152,6 +152,25 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(Feed.testSummary("noise\n44 passed, 1 failed"), "44 passed, 1 failed")
         XCTAssertNil(Feed.testSummary("compiling...\ndone"), "no invented counts")
     }
+
+    func testFeedGroupsConsecutiveImagesAndKeepsDesktopAndBuildsStandalone() {
+        let feed = Feed.build([
+            ev(1, "agent.image", "Render 1", ["path": .string("/tmp/a.png")]),
+            ev(2, "agent.image", "Render 2", ["path": .string("/tmp/b.png")]),
+            ev(3, "agent.command", "$ blender -b scene.blend", ["follow": .object(["view": .string("vnc"), "app": .string("blender")])]),
+            ev(4, "build.started", "Building app", ["build": .string("b1")]),
+            ev(5, "visual.output", "chart.png", ["path": .string("chart.png"), "kind": .string("image")]),
+        ])
+        XCTAssertEqual(feed.count, 4)
+        if case .images(let imgs) = feed[0] { XCTAssertEqual(imgs.count, 2) } else { XCTFail("consecutive images group into gallery") }
+        if case .single(let d) = feed[1] { XCTAssertTrue(Feed.isDesktop(d)) } else { XCTFail("desktop events stay standalone") }
+        if case .single(let b) = feed[2] { XCTAssertTrue(Feed.isBuild(b)) } else { XCTFail("build events stay standalone") }
+        if case .single(let v) = feed[3] { XCTAssertEqual(v.kind, "visual.output") } else { XCTFail("visual artifacts stay standalone") }
+    }
+
+    func testNavigationHasFourCoreSections() {
+        XCTAssertEqual(AppSection.allCases, [.agents, .terminal, .files, .settings])
+    }
 }
 
 final class FixtureTests: XCTestCase {

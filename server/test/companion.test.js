@@ -155,7 +155,7 @@ test("gemini: chat recordings become sessions with prompts, commands, edits and 
   await app.agents.pollTranscripts();
   const a = (await api("GET", "/api/agents")).body.find((x) => x.id === "gemini:g-1");
   assert.ok(a, "gemini session listed");
-  assert.equal(a.agentName, "Gemini CLI");
+  assert.equal(a.agentName, "Gemini · Antigravity");
   assert.equal(a.project, "web-app");
   assert.equal(a.counts.edits, 1);
 });

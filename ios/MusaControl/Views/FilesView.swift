@@ -40,7 +40,23 @@ struct FilesSectionView: View {
     var body: some View {
         @Bindable var app = app
         VStack(spacing: 0) {
-            HStack { ProjectPicker(selection: $app.filesProject); Spacer() }.padding(8).background(Theme.raised)
+            HStack(spacing: 8) {
+                ProjectPicker(selection: $app.filesProject)
+                Spacer()
+                if let p = app.filesProject {
+                    Button { app.openGitBuilds(project: p) } label: {
+                        Label("Git & Builds", systemImage: "arrow.triangle.branch")
+                            .font(.system(size: 12.5, weight: .medium))
+                            .padding(.horizontal, 10)
+                            .frame(height: 30)
+                            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.line))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.text)
+                }
+            }
+            .padding(8).background(Theme.raised)
             if let p = app.filesProject {
                 // Phone: the browser, then the open file full screen with Back.
                 AdaptiveSplit(masterWidth: 300, showingDetail: files.openPath[p] != nil, backTitle: "Files",

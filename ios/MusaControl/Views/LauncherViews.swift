@@ -157,9 +157,8 @@ struct QuickSwitcher: View {
     var items: [Item] {
         var out: [Item] = []
         for a in app.agents where a.status != "ended" { out.append(Item(id: "a" + a.id, title: a.title, subtitle: "\(a.agentName) · \(a.statusText)", icon: a.icon) { app.openAgent(a.id) }) }
-        for p in app.projects { out.append(Item(id: "p" + p.id, title: p.name, subtitle: "Workspace · \(p.kind)", icon: p.icon) { app.openWorkspace(p.id) }) }
-        for s in AppSection.allCases where s != .workspace { out.append(Item(id: "s" + s.rawValue, title: s.title, subtitle: "Open", icon: s.icon) { app.go(s) }) }
-        for k in PanelKind.allCases { out.append(Item(id: "k" + k.rawValue, title: k.title, subtitle: "Panel", icon: k.icon) { app.workspace.reveal(k) }) }
+        for p in app.projects { out.append(Item(id: "p" + p.id, title: p.name, subtitle: "Files · \(p.kind)", icon: p.icon) { app.openWorkspace(p.id) }) }
+        for s in AppSection.allCases { out.append(Item(id: "s" + s.rawValue, title: s.title, subtitle: "Section", icon: s.icon) { app.go(s) }) }
         guard !q.isEmpty else { return out }
         let needle = q.lowercased()
         return out.filter { $0.title.lowercased().contains(needle) || $0.subtitle.lowercased().contains(needle) }

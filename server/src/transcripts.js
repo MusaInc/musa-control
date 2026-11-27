@@ -8,19 +8,25 @@
 const IMAGE = /\.(png|jpe?g|webp|gif)$/i;
 const TEST_CMD = /\b(npm (run )?test|pnpm test|yarn test|pytest|jest|vitest|playwright test|go test|cargo test|swift test|xcodebuild test|run_tests\.gd|node --test|npm run check|ctest)\b/;
 const PREVIEW_CMD = /\b(http\.server|npm run (dev|start|preview|serve)|vite( |$)|next dev|serve -|python3? -m http|live-server|godot .*--export.*web)\b/;
-const BROWSER_TOOL = /chrome|playwright|browser|computer|screenshot|puppeteer|cdp/i;
-const SCREENSHOT_CMD = /(screenshot|--shot|capture|filmstrip|import -window|scrot|grim)/i;
+const BROWSER_TOOL = /chrome|playwright|browser|computer|screenshot|puppeteer|cdp|blender|desktop/i;
+const GUI_CMD = /\b(blender|chromium|google-chrome|firefox|godot|gimp|inkscape|xdotool|xvfb-run|playwright)\b|DISPLAY=:\d+/i;
+const SCREENSHOT_CMD = /(screenshot|--shot|capture|filmstrip|import -window|scrot|grim|render|contact.?sheet)/i;
 
 const short = (s, n = 160) => { const t = String(s ?? "").replace(/<\/?pasted_content[^>]*>/g, " ").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
-const imagePathsIn = (s) => [...String(s || "").matchAll(/(\/(?:home|tmp|srv)\/[^\s'"`<>|;]+?\.(?:png|jpe?g|webp))/gi)].map((m) => m[1]);
+const imagePathsIn = (s) => [...new Set([...String(s || "").matchAll(/(\/(?:home|tmp|srv|var|Users)\/[^\s'"`<>|;()]+?\.(?:png|jpe?g|webp|gif))/gi)].map((m) => m[1]))];
+const guiAppOf = (cmd) => {
+  const m = String(cmd || "").match(/\b(blender|chromium|google-chrome|firefox|godot|gimp|inkscape|playwright)\b/i);
+  if (m) return m[1].toLowerCase().replace("google-chrome", "Chrome");
+  return /DISPLAY=:\d+|xvfb-run|xdotool/i.test(cmd || "") ? "Desktop" : null;
+};
 
 function commandEvent(command, extra, key, ts) {
-  const isTest = TEST_CMD.test(command), isPreview = PREVIEW_CMD.test(command);
+  const isTest = TEST_CMD.test(command), isPreview = PREVIEW_CMD.test(command), guiApp = GUI_CMD.test(command) ? guiAppOf(command) : null;
   return {
     kind: isTest ? "agent.test" : "agent.command", key, ts,
     title: (isTest ? "Running tests: " : "$ ") + short(command, 140),
-    detail: { command: String(command).slice(0, 4000), ...extra },
-    follow: isTest ? { view: "tests" } : isPreview ? { view: "preview" } : { view: "activity" },
+    detail: { command: String(command).slice(0, 4000), ...(guiApp ? { guiApp } : {}), ...extra },
+    follow: isTest ? { view: "tests" } : guiApp ? { view: "vnc", app: guiApp } : isPreview ? { view: "preview" } : { view: "activity" },
   };
 }
 
@@ -149,7 +155,7 @@ export function parseCodexLine(line, state = {}) {
       const ev = commandEvent(cmd, { exitCode: code, output: String(it.aggregated_output || "").slice(-6000), cwd: fileUrl(it.cwd), ok: code === 0 }, key, ts);
       if (code !== null && code !== 0) { ev.title = `Failed (${code}): ${short(cmd, 120)}`; if (ev.kind === "agent.command") ev.kind = "agent.command_failed"; }
       out.push(ev);
-      for (const img of imagePathsIn(it.aggregated_output)) if (SCREENSHOT_CMD.test(cmd)) out.push({ kind: "agent.image", key: key + ":" + img, ts, title: `Captured ${img.split("/").pop()}`, detail: { path: img, via: "command" }, follow: { view: "screenshot", path: img } });
+      for (const img of imagePathsIn(it.aggregated_output)) if (SCREENSHOT_CMD.test(cmd) || IMAGE.test(img)) out.push({ kind: "agent.image", key: key + ":" + img, ts, title: `Captured ${img.split("/").pop()}`, detail: { path: img, via: "command" }, follow: { view: "screenshot", path: img } });
       break;
     }
     case "FileChange": {
@@ -228,14 +234,16 @@ export function parseGeminiLine(line, state = {}) {
       const ev = commandEvent(String(args.command || ""), { exitCode: code ? Number(code) : failed ? 1 : 0, output: out0.slice(-6000), cwd: args.directory || state.cwd || null, ok: !failed }, k, ts);
       if (failed || (code && code !== "0")) { ev.title = `Failed: ${short(args.command, 120)}`; if (ev.kind === "agent.command") ev.kind = "agent.command_failed"; }
       out.push(ev);
+      for (const img of imagePathsIn(out0)) out.push({ kind: "agent.image", key: k + ":" + img, ts, title: `Captured ${img.split("/").pop()}`, detail: { path: img, via: "command" }, follow: { view: "screenshot", path: img } });
     } else if (GEMINI_EDIT.test(tc.name) && args.file_path) {
       if (failed) { out.push({ kind: "agent.error", key: k, ts, title: `Edit failed: ${String(args.file_path).split("/").pop()}`, detail: { path: args.file_path } }); continue; }
       const diff = typeof tc.resultDisplay === "object" && tc.resultDisplay?.fileDiff ? String(tc.resultDisplay.fileDiff).slice(0, 60000) : null;
       out.push({ kind: "agent.edit", key: k, ts, title: `${tc.name === "write_file" ? "Wrote" : "Edited"} ${String(args.file_path).split("/").pop()}`,
         detail: { path: args.file_path, change: tc.name === "write_file" ? "write" : "update", diff }, follow: { view: "diff", path: args.file_path } });
-    } else if (tc.name === "read_file" && IMAGE.test(String(args.file_path || args.absolute_path || ""))) {
+    } else if (tc.name === "read_file" && (args.file_path || args.absolute_path)) {
       const p = String(args.file_path || args.absolute_path);
-      out.push({ kind: "agent.image", key: k, ts, title: `Viewed ${p.split("/").pop()}`, detail: { path: p, via: "view" }, follow: { view: "screenshot", path: p } });
+      if (IMAGE.test(p)) out.push({ kind: "agent.image", key: k, ts, title: `Viewed ${p.split("/").pop()}`, detail: { path: p, via: "view" }, follow: { view: "screenshot", path: p } });
+      else out.push({ kind: "agent.read", key: k, ts, persist: false, title: `Reading ${p.split("/").pop()}`, detail: { path: p }, follow: { view: "file", path: p } });
     } else {
       out.push({ kind: "agent.tool", key: k, ts, persist: !/^(read_file|list_directory|glob|search_file_content|grep_search|read_many_files)$/.test(tc.name), title: `${tc.displayName || tc.name}${args.file_path ? ` ${String(args.file_path).split("/").pop()}` : args.pattern ? ` ${short(args.pattern, 60)}` : ""}`,
         detail: { tool: tc.name, input: short(JSON.stringify(args), 600), failed }, follow: BROWSER_TOOL.test(tc.name) ? { view: "vnc" } : { view: "activity" } });
