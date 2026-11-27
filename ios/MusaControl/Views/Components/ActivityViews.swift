@@ -423,6 +423,7 @@ private struct ResolvedImage: Hashable {
     let name: String
 }
 
+@MainActor
 private func resolveImageSource(event: TimelineEvent, app: AppModel) async -> ResolvedImage? {
     let rawPath = event.detail?["path"]?.string
     let name = (rawPath as NSString?)?.lastPathComponent ?? event.title
