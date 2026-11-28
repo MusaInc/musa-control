@@ -168,8 +168,8 @@ final class LayoutTests: XCTestCase {
         if case .single(let v) = feed[3] { XCTAssertEqual(v.kind, "visual.output") } else { XCTFail("visual artifacts stay standalone") }
     }
 
-    func testNavigationHasFourCoreSections() {
-        XCTAssertEqual(AppSection.allCases, [.agents, .terminal, .files, .settings])
+    func testNavigationIncludesStudioToolsAfterExistingSections() {
+        XCTAssertEqual(AppSection.allCases, [.agents, .terminal, .files, .settings, .automation])
     }
 }
 
