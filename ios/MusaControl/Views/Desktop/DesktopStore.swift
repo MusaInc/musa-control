@@ -56,6 +56,7 @@ final class DesktopStore: NSObject, WKScriptMessageHandler {
     @ObservationIgnored private(set) var webView: DesktopWebView?
     @ObservationIgnored private var client: GatewayClient?
     @ObservationIgnored private var machineId: String?
+    @ObservationIgnored private var loadGeneration = UUID()
     @ObservationIgnored private var displayTask: Task<Void, Never>?
 
     nonisolated static func loadFloat() -> CGRect {
@@ -73,6 +74,7 @@ final class DesktopStore: NSObject, WKScriptMessageHandler {
         self.client = client; machineId = machine
         let target = d ?? display
         if active, webView != nil, target == display { return }
+        if target != display { control = false }
         display = target
         UserDefaults.standard.set(target, forKey: "desktop.display")
         active = true
@@ -88,6 +90,7 @@ final class DesktopStore: NSObject, WKScriptMessageHandler {
 
     /// Machine switch / sign-out: drop the connection but keep preferences.
     func teardown() {
+        loadGeneration = UUID()
         webView?.evaluateJavaScript("window.mc && mc.disconnect()")
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "mc")
         webView?.removeFromSuperview()
@@ -116,13 +119,18 @@ final class DesktopStore: NSObject, WKScriptMessageHandler {
             w.scrollView.bounces = false
             webView = w
         }
+        let generation = UUID()
+        loadGeneration = generation
         connected = false; status = "Connecting…"
         let url = client.url("/vnc.html", ["display": display, "mode": control ? "control" : "observe", "cmd": cmdAsCtrl ? "ctrl" : "super"])
         Task {
             do {
                 try await WebSessionCookie.install(client: client, into: w.configuration.websiteDataStore.httpCookieStore)
+                guard loadGeneration == generation, webView === w else { return }
                 w.load(URLRequest(url: url))
-            } catch { status = "Couldn't authorise the remote desktop: \(error.localizedDescription)" }
+            } catch {
+                if loadGeneration == generation { status = "Couldn't authorise the remote desktop: \(error.localizedDescription)" }
+            }
         }
     }
 

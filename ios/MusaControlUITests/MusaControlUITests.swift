@@ -43,6 +43,37 @@ final class MusaControlUITests: XCTestCase {
         }
     }
 
+    func testStudioOpensContextualFilesAndBuilds() {
+        let app = launch()
+        XCTAssertTrue(el(app, "studio.overview").waitForExistence(timeout: 10))
+        let files = el(app, "studio.files")
+        XCTAssertTrue(files.waitForExistence(timeout: 10))
+        files.tap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 10))
+        snap(app, "studio-files")
+        app.buttons["Done"].tap()
+
+        let builds = el(app, "studio.builds")
+        XCTAssertTrue(builds.waitForExistence(timeout: 10))
+        builds.tap()
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 10))
+        snap(app, "studio-builds")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(el(app, "studio.overview").exists)
+    }
+
+    func testLiveWorkOpensNativeChatGPTBrowser() {
+        let app = launch()
+        let liveWork = app.segmentedControls["studio.workspace"].buttons["Live Work"]
+        XCTAssertTrue(liveWork.waitForExistence(timeout: 10))
+        liveWork.tap()
+        let browser = app.buttons["liveWork.browser"]
+        XCTAssertTrue(browser.waitForExistence(timeout: 10))
+        browser.tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
+        snap(app, "studio-native-chatgpt-browser")
+    }
+
     /// Four-section navigation: Agents, Terminal, Files, Settings.
     func testFourSections() {
         let app = launch()

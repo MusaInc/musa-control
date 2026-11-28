@@ -25,6 +25,7 @@ struct RootView: View {
         }
         .animation(.spring(duration: 0.35), value: app.banner?.stableId)
         .sheet(item: $app.sheet) { s in SheetHost(sheet: s) }
+        .sheet(item: $app.studioFiles) { item in StudioFilesSheet(projectId: item.id) }
         .sheet(item: $app.gitBuildsSheet) { item in ProjectGitBuildsSheet(projectId: item.id) }
         .sheet(isPresented: $app.showLauncher) { AgentLauncher(initialProject: app.launcherProject) }
         .sheet(isPresented: $app.showSwitcher) { QuickSwitcher() }
@@ -206,7 +207,7 @@ struct SectionContent: View {
 
     var body: some View {
         switch app.section {
-        case .agents: AgentsView()
+        case .agents: StudioDashboard()
         case .terminal: TerminalSectionView()
         case .files: FilesSectionView()
         case .settings: SettingsView()
@@ -249,6 +250,9 @@ struct FullScreenDesktopCover: View {
         .background(Color(Theme.terminalBg))
         .onAppear {
             if !desk.active { desk.open(client: app.client, machine: app.activeMachine?.id, presentation: .full) }
+        }
+        .onDisappear {
+            if desk.display == "99" { desk.setControl(false) }
         }
     }
 }

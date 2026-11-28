@@ -12,6 +12,7 @@ import { run } from "./exec.js";
 
 export function createVnc(cfg, events) {
   const spawned = new Map(); // `${display}:${mode}` → {proc, port, clients, idleTimer}
+  const starting = new Map();
   const clients = new Map(); // display → Set({mode, device, since})
 
   async function displays() {
@@ -55,34 +56,45 @@ export function createVnc(cfg, events) {
     const key = `${display}:${mode}`;
     const s = spawned.get(key);
     if (s && s.proc.exitCode === null) { clearTimeout(s.idleTimer); return s.port; }
-    const list = await displays();
-    const d = list.find((x) => x.display === String(display));
-    if (!d) throw Object.assign(new Error(`Display :${display} isn't running`), { status: 404 });
-    const port = cfg.vnc.spawnPortBase + Number(display) % 40 * 2 + (mode === "control" ? 1 : 0);
-    const args = ["-display", `:${display}`, "-rfbport", String(port), "-localhost", "-shared", "-forever", "-nopw", "-quiet",
-      "-noxrecord", "-noxfixes", "-noxdamage", "-nobell"];
-    if (d.auth) args.push("-auth", d.auth);
-    if (mode !== "control") args.push("-viewonly");
-    const proc = spawn("x11vnc", args, { stdio: ["ignore", "ignore", "pipe"] });
-    let err = "";
-    proc.stderr.on("data", (c) => { err = (err + c).slice(-2000); });
-    spawned.set(key, { proc, port, idleTimer: null });
-    // Wait until it accepts connections.
-    for (let i = 0; i < 40; i++) {
-      await new Promise((r) => setTimeout(r, 150));
-      if (proc.exitCode !== null) throw Object.assign(new Error(`x11vnc exited: ${err.trim().split("\n").pop()}`), { status: 502 });
-      if (await canConnect(port)) return port;
-    }
-    proc.kill();
-    throw Object.assign(new Error("x11vnc did not start"), { status: 502 });
+    if (starting.has(key)) return starting.get(key);
+    const pending = startDisplay(display, mode, key);
+    starting.set(key, pending);
+    try { return await pending; }
+    finally { starting.delete(key); }
   }
 
-  function canConnect(port) {
-    return new Promise((resolve) => {
-      const s = net.connect(port, "127.0.0.1");
-      s.once("connect", () => { s.destroy(); resolve(true); });
-      s.once("error", () => resolve(false));
+  async function startDisplay(display, mode, key) {
+    const d = (await displays()).find((item) => item.display === display);
+    if (!d) throw Object.assign(new Error(`Display :${display} isn't running`), { status: 404 });
+    const args = ["-display", `:${display}`, "-autoport", String(cfg.vnc.spawnPortBase), "-localhost",
+      "-shared", "-forever", "-nopw", "-quiet", "-noxrecord", "-noxfixes", "-noxdamage", "-nobell"];
+    if (d.auth) args.push("-auth", d.auth);
+    if (mode !== "control") args.push("-viewonly");
+    const proc = spawn("x11vnc", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    proc.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-2000); });
+    const port = await new Promise((resolve, reject) => {
+      let stdout = "";
+      const finish = (error, value) => {
+        clearTimeout(timer);
+        proc.stdout.off("data", readPort);
+        proc.off("exit", onExit);
+        if (error) { proc.kill(); reject(Object.assign(error, { status: 502 })); }
+        else resolve(value);
+      };
+      const readPort = chunk => {
+        stdout = (stdout + chunk).slice(-400);
+        const match = /^PORT=(\d+)$/m.exec(stdout);
+        if (match) finish(null, Number(match[1]));
+      };
+      const onExit = () => finish(new Error(stderr.trim().split("\n").pop() || "x11vnc exited"));
+      const timer = setTimeout(() => finish(new Error("x11vnc did not report a listening port")), 6500);
+      proc.stdout.on("data", readPort);
+      proc.once("error", finish);
+      proc.once("exit", onExit);
     });
+    spawned.set(key, { proc, port, idleTimer: null });
+    return port;
   }
 
   function release(display, mode) {
@@ -98,6 +110,7 @@ export function createVnc(cfg, events) {
   // ws: an accepted WebSocket (binary). Pipes RFB bytes both ways.
   async function bridge(ws, { display, mode, device }) {
     const port = mode === "control" || !cfg.vnc.known[display] ? await ensureServer(display, mode) : await ensureServer(display, "observe");
+    if (ws.readyState !== 1) { release(display, mode); return; }
     const sock = net.connect(port, "127.0.0.1");
     const entry = { mode, device: device?.name || "device", since: Date.now() };
     if (!clients.has(display)) clients.set(display, new Set());
@@ -106,9 +119,13 @@ export function createVnc(cfg, events) {
     sock.setNoDelay(true);
     sock.on("data", (d) => { if (ws.readyState === 1) ws.send(d); });
     ws.on("message", (d) => sock.write(d));
+    let closed = false;
     const close = () => {
+      if (closed) return;
+      closed = true;
       sock.destroy(); try { ws.close(); } catch {}
       clients.get(display)?.delete(entry);
+      if (!clients.get(display)?.size) clients.delete(display);
       release(display, mode);
     };
     sock.on("error", close); sock.on("close", close);

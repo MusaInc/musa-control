@@ -548,6 +548,8 @@ struct AgentComposer: View {
         .padding(.horizontal, 14).padding(.vertical, 10)
         .background(Theme.surface)
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .onAppear { appendFileContext() }
+        .onChange(of: app.agentContextDrafts[agent.id]) { _, _ in appendFileContext() }
         .onChange(of: photo) { _, item in
             guard let item else { return }
             Task {
@@ -567,6 +569,12 @@ struct AgentComposer: View {
                 }
             }
         }
+    }
+
+    private func appendFileContext() {
+        guard let context = app.agentContextDrafts.removeValue(forKey: agent.id) else { return }
+        text += (text.isEmpty ? "" : "\n\n") + context
+        focused = true
     }
 
     var canSend: Bool {

@@ -37,7 +37,11 @@ final class MusaControlPhoneUITests: XCTestCase {
 
     func testAgentListThenDetail() {
         let app = launch()
-        app.buttons["tab.agents"].tap(); sleep(2)
+        app.buttons["tab.agents"].tap()
+        let agents = app.segmentedControls["studio.workspace"].buttons["Agents"]
+        XCTAssertTrue(agents.waitForExistence(timeout: 8))
+        agents.tap()
+        sleep(2)
         snap(app, "agents-list")
         let first = app.cells.firstMatch
         if first.waitForExistence(timeout: 5) { first.tap(); sleep(2); snap(app, "agent-detail") }

@@ -40,7 +40,7 @@ struct PhoneTabBar: View {
         let selected = app.section == section
         return Button {
             Device.tap()
-            if section == .agents && selected { app.focusedAgent = nil }   // re-tap: back to the list
+            if section == .agents && selected { app.studioPanel = .overview }
             app.go(section)
         } label: {
             VStack(spacing: 3) {

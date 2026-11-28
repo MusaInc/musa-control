@@ -9,7 +9,7 @@ enum AppSection: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .agents: return "Agents"
+        case .agents: return "Studio"
         case .terminal: return "Terminal"
         case .files: return "Files"
         case .settings: return "Settings"
@@ -18,7 +18,7 @@ enum AppSection: String, CaseIterable, Identifiable, Codable {
     }
     var icon: String {
         switch self {
-        case .agents: return "sparkles"
+        case .agents: return "square.grid.2x2"
         case .terminal: return "terminal"
         case .files: return "folder"
         case .settings: return "gearshape"
@@ -69,7 +69,12 @@ final class AppModel {
     // Navigation: Agents at the centre, with Terminal, Files and Settings.
     let workspace: WorkspaceStore
     let desktop: DesktopStore
+    let chatBrowser: NativeChatBrowser
     var section: AppSection = .agents
+    var studioPanel: StudioPanel = .overview
+    var studioProject: String?
+    var studioFiles: ProjectSheetItem?
+    var agentContextDrafts: [String: String] = [:]
     var sidebarExpanded: Bool = UserDefaults.standard.object(forKey: "nav.sidebarExpanded") as? Bool ?? false {
         didSet { UserDefaults.standard.set(sidebarExpanded, forKey: "nav.sidebarExpanded") }
     }
@@ -103,6 +108,7 @@ final class AppModel {
     init() {
         workspace = WorkspaceStore()
         desktop = DesktopStore()
+        chatBrowser = NativeChatBrowser()
         let args = ProcessInfo.processInfo.arguments
         let fx = args.contains("-UITestFixtures")
         fixtures = fx
@@ -203,7 +209,9 @@ final class AppModel {
         machines = MachineStore.all
         activeMachine = m
         overview = nil; projects = []; agents = []; liveEvents = []; followFocus = nil; focusedAgent = nil
+        studioProject = nil; studioFiles = nil; studioPanel = .overview; agentContextDrafts = [:]
         desktop.teardown()
+        chatBrowser.clearBinding()
         workspace.open(project: nil); filesProject = nil
         if let u = m.url, let url = URL(string: u) { serverURL = url }
         client = GatewayClient(base: m.kind == .relay ? CloudAuth.machineBase(m.cloudId ?? "") : (URL(string: m.url ?? "") ?? serverURL), token: m.token)
@@ -317,7 +325,11 @@ final class AppModel {
     }
     func refreshProjects() async { if let p = try? await client.get("/api/projects", as: [Project].self) { projects = p } }
     func refreshAgents() async { if let a = try? await client.get("/api/agents", as: [Agent].self) { agents = a } }
-    func refreshOverview() async { if let o = try? await client.get("/api/overview", as: Overview.self) { overview = o } }
+    func refreshOverview() async {
+        let connection = client
+        if let value = try? await connection.get("/api/overview", as: Overview.self),
+           !Task.isCancelled, connection === client { overview = value }
+    }
 
     private func refreshAutomation() async {
         guard automationAvailable else { return }
@@ -390,7 +402,12 @@ final class AppModel {
     func openWorkspace(_ id: String) {
         workspace.open(project: id)
         filesProject = id
-        section = .files
+        if section == .agents {
+            studioProject = id
+            studioFiles = ProjectSheetItem(id: id)
+        } else {
+            section = .files
+        }
         sheet = nil
         Task { _ = try? await client.send("POST", "/api/projects/\(id)/watch", ["minutes": 60], as: WatchState.self) }
     }
@@ -400,7 +417,12 @@ final class AppModel {
         workspace.open(project: project)
         filesProject = project
         FilesState.shared.open(project: project, path: path, line: line)
-        section = .files
+        if section == .agents {
+            studioProject = project
+            studioFiles = ProjectSheetItem(id: project)
+        } else {
+            section = .files
+        }
         sheet = nil
     }
 
@@ -421,6 +443,7 @@ final class AppModel {
     func showAgent(_ id: String) {
         focusedAgent = id
         section = .agents
+        studioPanel = .agents
         sheet = nil
         if let p = agent(id)?.project, project(p) != nil {
             workspace.open(project: p)
@@ -437,6 +460,29 @@ final class AppModel {
         }
     }
 
+    func enableDesktopControl() async throws {
+        let machine = activeMachine?.id
+        let target = desktop.display
+        let connection = client
+        if target == "99" {
+            do {
+                let current = try await connection.get("/api/live-work", as: LiveWorkSnapshot.self, timeout: 6)
+                if current.active && current.browser.humanCheck != true {
+                    guard current.controllable, let id = current.id else {
+                        throw GatewayError(status: 409, message: "Use the owning web dashboard to take over this Live Work session.", body: nil)
+                    }
+                    _ = try await connection.send("POST", "/api/live-work/control",
+                        ["action": "takeover", "jobId": id], as: LiveWorkSnapshot.self, timeout: 12)
+                }
+            } catch let error as GatewayError where [403, 404, 503].contains(error.status) {
+                // Other paired computers may have a :99 desktop and no Live Work bridge.
+            }
+        }
+        guard machine == activeMachine?.id, target == desktop.display else { return }
+        desktop.setControl(true)
+        desktop.focusKeyboard()
+    }
+
     func toggleDesktop() {
         if showFullScreenDesktop {
             showFullScreenDesktop = false
@@ -448,6 +494,19 @@ final class AppModel {
     func openGitBuilds(project id: String?) {
         guard let target = id ?? agent(focusedAgent)?.project ?? filesProject ?? projects.first(where: { $0.git })?.id ?? projects.first?.id else { return }
         gitBuildsSheet = ProjectSheetItem(id: target)
+    }
+
+    func draftFileContext(for agent: Agent, path: String, selectedText: String? = nil) {
+        let context: String
+        if let selectedText, !selectedText.isEmpty {
+            context = "Selected text from \(path):\n" + selectedText.prefix(8000).split(separator: "\n", omittingEmptySubsequences: false)
+                .map { "    " + String($0) }.joined(separator: "\n")
+        } else {
+            context = "File for context: \(path)"
+        }
+        agentContextDrafts[agent.id] = context
+        studioFiles = nil
+        showAgent(agent.id)
     }
 
     func openAgent(_ id: String) { showAgent(id) }

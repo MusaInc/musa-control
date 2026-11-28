@@ -21,6 +21,25 @@ function detectKind(dir) {
   return "folder";
 }
 
+function projectVersion(dir, kind) {
+  for (const file of kind === "godot" ? ["project.godot"] : ["app.json", "package.json"]) {
+    try {
+      const source = fs.realpathSync(path.join(dir, file));
+      if (!source.startsWith(dir + path.sep)) continue;
+      if (fs.statSync(source).size > 512 * 1024) continue;
+      const body = fs.readFileSync(source, "utf8");
+      let value;
+      if (file === "project.godot") value = body.match(/^config\/version\s*=\s*"([^"]+)"/m)?.[1];
+      else {
+        const json = JSON.parse(body);
+        value = json.expo?.version ?? json.version;
+      }
+      if (typeof value === "string" && /^[0-9A-Za-z.+_-]{1,48}$/.test(value)) return value;
+    } catch {}
+  }
+  return null;
+}
+
 function githubRepo(dir) {
   try {
     const conf = fs.readFileSync(path.join(dir, ".git", "config"), "utf8");
@@ -64,7 +83,7 @@ export function createProjects(cfg) {
       const kind = detectKind(real);
       const base = path.basename(real);
       found.set(id, {
-        id, name: name || base, path: real, kind, git: fs.existsSync(path.join(real, ".git")),
+        id, name: name || base, path: real, kind, version: projectVersion(real, kind), git: fs.existsSync(path.join(real, ".git")),
         github: githubRepo(real), previews: cfg.previews[base] || cfg.previews[id] || [],
       });
     };

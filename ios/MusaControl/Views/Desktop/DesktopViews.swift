@@ -10,6 +10,7 @@ struct DesktopPane: View {
     @Environment(AppModel.self) private var app
     @Environment(DesktopStore.self) private var desk
     @State private var confirmControl = false
+    @State private var controlError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,12 +25,20 @@ struct DesktopPane: View {
         }
         .background(Color(Theme.terminalBg))
         .confirmationDialog("Control display :\(desk.display)?", isPresented: $confirmControl, titleVisibility: .visible) {
-            Button("Take control") { desk.setControl(true); desk.focusKeyboard() }
+            Button("Take control") {
+                Task {
+                    do { try await app.enableDesktopControl() }
+                    catch { controlError = error.localizedDescription }
+                }
+            }
         } message: {
             Text(desk.currentDisplay?.native == true
                  ? "This desktop is shared with the Live Work agents. Your clicks and keys go to the same browser they use."
                  : "Your input goes straight to the program drawing on this display.")
         }
+        .alert("Desktop control", isPresented: Binding(get: { controlError != nil }, set: { if !$0 { controlError = nil } })) {
+            Button("OK") { controlError = nil }
+        } message: { Text(controlError ?? "") }
     }
 
     var connecting: some View {

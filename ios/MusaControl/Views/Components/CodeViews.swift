@@ -50,6 +50,7 @@ struct CodeEditor: UIViewRepresentable {
     var fontSize: CGFloat = 13
     var jumpLine: Int? = nil
     var wordWrap = true
+    var onSelection: (String) -> Void = { _ in }
     var onSave: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -114,6 +115,14 @@ struct CodeEditor: UIViewRepresentable {
         var pending: DispatchWorkItem?
         var lastJump: String?
         init(_ p: CodeEditor) { parent = p }
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            let text = (textView.text ?? "") as NSString
+            let range = textView.selectedRange
+            let selection = range.location <= text.length && range.length <= text.length - range.location
+                ? text.substring(with: NSRange(location: range.location, length: min(range.length, 8000))) : ""
+            DispatchQueue.main.async { [weak self] in self?.parent.onSelection(selection) }
+        }
+
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText replacement: String) -> Bool {
             guard replacement == "\n" else { return true }
             let source = textView.text as NSString

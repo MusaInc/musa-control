@@ -2,6 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key><string>Use your microphone for ChatGPT voice conversations in Live Work.</string>
 	<key>CFBundleDevelopmentRegion</key><string>en-GB</string>
 	<key>CFBundleDisplayName</key><string>Musa Control</string>
 	<key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>

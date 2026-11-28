@@ -13,6 +13,7 @@ final class FilesState {
     var browsePath: [String: String] = [:]
     var matches: [String: [SearchResult]] = [:]
     var tabs: [String: [String]] = [:]
+    var recentPaths: [String: [String]] = [:]
     var drafts: [String: String] = [:]
     var originals: [String: FileContent] = [:]
     var replacePath: [String: String] = [:]
@@ -21,6 +22,7 @@ final class FilesState {
     var unsaved: Set<String> = []          // projects whose open file has unsaved edits
     func open(project: String, path: String, line: Int? = nil) {
         if !(tabs[project] ?? []).contains(path) { tabs[project, default: []].append(path) }
+        recentPaths[project] = Array(([path] + (recentPaths[project] ?? []).filter { $0 != path }).prefix(10))
         openPath[project] = path
         browsePath[project] = (path as NSString).deletingLastPathComponent
         jumpLine = line
@@ -190,7 +192,22 @@ struct FileBrowser: View {
                                         files.restoreTick += 1; onOpen()
                                     }
                                     Button("Copy entire file") { copyFiles([path]) }
-                                    Button("Copy path") { UIPasteboard.general.string = path }
+                                    let matchingAgents = app.agents.filter { $0.project == projectId && $0.controllable && $0.isLive }
+                if !matchingAgents.isEmpty {
+                    Menu("Add file to agent message") {
+                        ForEach(matchingAgents) { agent in
+                            Button(agent.title) { app.draftFileContext(for: agent, path: path) }
+                        }
+                    }
+                    if mode == "edit", !selectedText.isEmpty {
+                        Menu("Add selection to agent message") {
+                            ForEach(matchingAgents) { agent in
+                                Button(agent.title) { app.draftFileContext(for: agent, path: path, selectedText: selectedText) }
+                            }
+                        }
+                    }
+                }
+                Button("Copy path") { UIPasteboard.general.string = path }
                                     Button("Copy matching lines") {
                                         UIPasteboard.general.string = results.filter { $0.path == path }.map { "\($0.path):\($0.line ?? 0): \($0.text ?? "")" }.joined(separator: "\n")
                                     }
@@ -444,6 +461,7 @@ struct FileViewerPanel: View {
     @State private var jump = ""
     @State private var showJump = false
     @State private var wordWrap = true
+    @State private var selectedText = ""
     @Environment(\.compactLayout) private var compact
 
     var path: String? { files.openPath[projectId] }
@@ -508,7 +526,10 @@ struct FileViewerPanel: View {
             files.originals[key] = content
             files.drafts[key] = value == content.text ? nil : value
         }
-        .task(id: "\(projectId)/\(path ?? "")") { await load() }
+        .task(id: "\(projectId)/\(path ?? "")") {
+            selectedText = ""
+            await load()
+        }
         .onChange(of: app.eventTick) { _, _ in
             guard let e = app.liveEvents.last, e.project == projectId, let p = path,
                   let ep = e.detail?["path"]?.string, ep == p || app.locate(ep)?.rel == p,
@@ -646,7 +667,8 @@ struct FileViewerPanel: View {
             case "history":
                 RevisionHistory(projectId: projectId, path: path, revisions: revisions)
             default:
-                CodeEditor(text: $text, path: path, fontSize: 13, jumpLine: files.jumpLine, wordWrap: wordWrap) { Task { await save(force: false) } }.id(path)
+                CodeEditor(text: $text, path: path, fontSize: 13, jumpLine: files.jumpLine, wordWrap: wordWrap,
+                           onSelection: { selectedText = $0 }, onSave: { Task { await save(force: false) } }).id(path)
             }
         }
     }

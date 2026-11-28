@@ -20,6 +20,7 @@ import { createVnc } from "./vnc.js";
 import { createVisuals } from "./visuals.js";
 import { createBuilds } from "./builds.js";
 import { createAutomation } from "./automation.js";
+import { createLiveWork } from "./live-work.js";
 import { createGithub } from "./github.js";
 import { createSystem } from "./system.js";
 import { createPush } from "./push.js";
@@ -84,6 +85,7 @@ export function createServer(overrides = {}) {
   const visuals = createVisuals(cfg, projects, events);
   const builds = createBuilds(cfg, db, projects, events);
   const automation = createAutomation(cfg);
+  const liveWork = createLiveWork(cfg, projects);
   const github = createGithub(events);
   const system = createSystem(cfg, events);
   // Relay link (companion linked to a Musa Control account): requests come in
@@ -124,22 +126,22 @@ export function createServer(overrides = {}) {
     return `http://${host}`;
   }
 
-  async function capabilities() {
+  async function capabilities(device) {
     const [tmuxBin, py, git, gh, ss, lsof] = await Promise.all(["tmux", cfg.python3 || "python3", "git", "gh", "ss", "lsof"].map((c) => hasCommand(c)));
     return {
       profile: cfg.profile, platform: process.platform, os: osName(), arch: process.arch, node: process.version,
       terminal: Boolean(tmuxBin), terminalOverSocket: Boolean(tmuxBin && py && terminal.available()), agents: Boolean(tmuxBin),
       git: Boolean(git), github: Boolean(gh), remoteDesktop: fs.existsSync(cfg.noVncDir) && Object.keys(cfg.vnc?.known || {}).length > 0,
       previews: Boolean(ss || lsof), services: cfg.services.length > 0, push: push.enabled || Boolean(relay),
-      relay: relay ? relayState.state : "off", visualiser: true, agentPause: true, automation: automation.enabled,
+      relay: relay ? relayState.state : "off", visualiser: true, agentPause: true, automation: automation.enabled, liveWork: liveWork.available(device),
     };
   }
 
   // ---------- session ----------
   route("GET", "/api/me", async ({ device }) => ({ id: device.id, name: device.name, expiresAt: device.expires_at, via: device.relay ? "relay" : "token",
     server: { version: VERSION, host: cfg.sshHost || (cfg.profile === "personal" ? "musastudios.co.uk" : os.hostname()), profile: cfg.profile, name: cfg.machineName || os.hostname(), user: os.userInfo().username, home: cfg.home },
-    capabilities: await capabilities() }));
-  route("GET", "/api/capabilities", () => capabilities());
+    capabilities: await capabilities(device) }));
+  route("GET", "/api/capabilities", ({ device }) => capabilities(device));
   // A paired device can mint a one-time code to pair another one.
   route("POST", "/api/pair-codes", ({ device }) => { const c = auth.createPairCode(); events.emit({ kind: "device.code", title: `Pairing code created by ${device.name}`, detail: {} }); return c; });
   route("GET", "/api/relay", () => ({ linked: Boolean(cfg.relay?.url), url: cfg.relay?.url || null, machineId: cfg.relay?.machineId || null, ...relayState }));
@@ -171,7 +173,7 @@ export function createServer(overrides = {}) {
   // ---------- overview ----------
   route("GET", "/api/overview", async () => {
     const [sys, agentList, shots] = await Promise.all([system.snapshot(), agents.list(), screenshots.list({ limit: 12 })]);
-    const recent = events.query({ limit: 60, kinds: ["agent.done", "agent.error", "agent.approval", "build.finished", "ci.finished", "git.commit", "git.push", "screenshot.new", "server.alert", "agent.started", "agent.edit", "file.changed"] });
+    const recent = events.query({ limit: 60, kinds: ["agent.done", "agent.error", "agent.approval", "build.finished", "ci.finished", "git.commit", "git.push", "screenshot.new", "server.alert", "agent.started", "agent.edit", "file.changed", "file.saved", "git.pull"] });
     const changing = new Map();
     for (const e of events.query({ limit: 400, kinds: ["file.changed", "agent.edit"] })) {
       if (!e.project || Date.now() - e.ts > 3600_000) continue;
@@ -189,6 +191,13 @@ export function createServer(overrides = {}) {
   });
   route("GET", "/api/system", () => system.snapshot());
   route("GET", "/api/tmux", async () => ({ sessions: await tmux.listSessions(), panes: await tmux.listPanes() }));
+
+  // ---------- original Musa Live Work ----------
+  route("GET", "/api/live-work", ({ device }) => liveWork.state(device));
+  route("GET", "/api/live-work/terminal", ({ device }) => liveWork.terminal(device));
+  route("POST", "/api/live-work/start", ({ device, body }) => liveWork.start(device, body), { bodyLimit: 32768 });
+  route("POST", "/api/live-work/control", ({ device, body }) => liveWork.control(device, body), { bodyLimit: 32768 });
+  route("POST", "/api/live-work/focus", ({ device }) => liveWork.focus(device), { bodyLimit: 1024 });
 
   // ---------- studio automation ----------
   route("GET", "/api/automation/catalog", () => automation.catalog());
