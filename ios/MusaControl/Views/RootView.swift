@@ -318,7 +318,6 @@ struct SheetHost: View {
                 switch sheet {
                 case .machines: MachinesView()
                 case .settings: SettingsView()
-        case .automation: AutomationView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
