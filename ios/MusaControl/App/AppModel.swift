@@ -2,10 +2,10 @@ import SwiftUI
 import Observation
 import UIKit
 
-/// The four core sections of Musa Control. Git, builds, remote desktop and
+/// The core sections of Musa Control. Git, builds, remote desktop and
 /// visualisations live contextually inside Agents and Files.
 enum AppSection: String, CaseIterable, Identifiable, Codable {
-    case agents, terminal, files, settings
+    case agents, terminal, files, settings, automation
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -13,6 +13,7 @@ enum AppSection: String, CaseIterable, Identifiable, Codable {
         case .terminal: return "Terminal"
         case .files: return "Files"
         case .settings: return "Settings"
+        case .automation: return "Tools"
         }
     }
     var icon: String {
@@ -21,6 +22,7 @@ enum AppSection: String, CaseIterable, Identifiable, Codable {
         case .terminal: return "terminal"
         case .files: return "folder"
         case .settings: return "gearshape"
+        case .automation: return "gearshape.2"
         }
     }
 }
@@ -59,6 +61,8 @@ final class AppModel {
     var projects: [Project] = []
     var agents: [Agent] = []
     var liveEvents: [TimelineEvent] = []      // newest last, bounded
+    var automationRunning = 0
+    private var automationAvailable = false
     var eventTick = 0                          // bumps on every live event
     var banner: TimelineEvent?
 
@@ -237,7 +241,9 @@ final class AppModel {
                 let p = try await SSHTunnels.shared.port(for: m)
                 if client.base.port != p { client = GatewayClient(base: URL(string: "http://127.0.0.1:\(p)")!, token: m.token) }
             }
-            _ = try await client.get("/api/me", as: Me.self)
+            let connection = try await client.get("/api/me", as: Me.self)
+            automationAvailable = connection.capabilities?.automation == true
+            automationRunning = 0
             phase = .ready
             await refreshAll()
             if workspace.projectId == nil || project(workspace.projectId) == nil, let first = projects.first(where: { ($0.activeAgents ?? 0) > 0 }) ?? projects.first { workspace.open(project: first.id) }
@@ -295,7 +301,9 @@ final class AppModel {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled else { return }
                 await self?.refreshAgents()
+                if self?.section != .automation { await self?.refreshAutomation() }
             }
         }
     }
@@ -304,11 +312,21 @@ final class AppModel {
         async let a: () = refreshProjects()
         async let b: () = refreshAgents()
         async let c: () = refreshOverview()
-        _ = await (a, b, c)
+        async let d: () = refreshAutomation()
+        _ = await (a, b, c, d)
     }
     func refreshProjects() async { if let p = try? await client.get("/api/projects", as: [Project].self) { projects = p } }
     func refreshAgents() async { if let a = try? await client.get("/api/agents", as: [Agent].self) { agents = a } }
     func refreshOverview() async { if let o = try? await client.get("/api/overview", as: Overview.self) { overview = o } }
+
+    private func refreshAutomation() async {
+        guard automationAvailable else { return }
+        let machine = activeMachine?.id
+        if let status = try? await client.get("/api/automation/health", as: StudioWorkerHealth.self),
+           machine == activeMachine?.id, !Task.isCancelled {
+            automationRunning = status.online ? status.runningCount : 0
+        }
+    }
 
     // MARK: Events
 

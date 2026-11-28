@@ -127,7 +127,7 @@ struct NavigationRail: View {
 
     func railItem(_ section: AppSection) -> some View {
         let selected = app.section == section
-        let badge = section == .agents ? waitingCount : 0
+        let badge = section == .agents ? waitingCount : section == .automation ? app.automationRunning : 0
         return Button {
             app.go(section)
         } label: {
@@ -170,7 +170,7 @@ struct NavigationRail: View {
         .buttonStyle(.plain)
         .hoverEffect(.highlight)
         .help(section.title)
-        .accessibilityLabel(Text(badge > 0 ? "\(section.title), \(badge) waiting" : section.title))
+        .accessibilityLabel(Text(badge > 0 ? "\(section.title), \(badge) \(section == .automation ? "running" : "waiting")" : section.title))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("nav.\(section.rawValue)")
         .padding(.horizontal, expanded ? 8 : 0)
@@ -210,6 +210,7 @@ struct SectionContent: View {
         case .terminal: TerminalSectionView()
         case .files: FilesSectionView()
         case .settings: SettingsView()
+        case .automation: AutomationView()
         }
     }
 }
@@ -317,6 +318,7 @@ struct SheetHost: View {
                 switch sheet {
                 case .machines: MachinesView()
                 case .settings: SettingsView()
+        case .automation: AutomationView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

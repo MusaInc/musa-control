@@ -19,6 +19,7 @@ import { createAgents } from "./agents.js";
 import { createVnc } from "./vnc.js";
 import { createVisuals } from "./visuals.js";
 import { createBuilds } from "./builds.js";
+import { createAutomation } from "./automation.js";
 import { createGithub } from "./github.js";
 import { createSystem } from "./system.js";
 import { createPush } from "./push.js";
@@ -47,7 +48,7 @@ async function readBody(req, limit = 2 * 1024 * 1024) {
   for await (const c of req) { n += c.length; if (n > limit) throw Object.assign(new Error("Request too large"), { status: 413 }); chunks.push(c); }
   return Buffer.concat(chunks);
 }
-async function readJson(req) { const b = await readBody(req); if (!b.length) return {}; try { return JSON.parse(b.toString("utf8")); } catch { throw Object.assign(new Error("Invalid JSON"), { status: 400 }); } }
+async function readJson(req, limit) { const b = await readBody(req, limit); if (!b.length) return {}; try { return JSON.parse(b.toString("utf8")); } catch { throw Object.assign(new Error("Invalid JSON"), { status: 400 }); } }
 
 async function sendFile(req, res, full, { mime, cache = "private, max-age=60", extra = {} } = {}) {
   const st = await fsp.stat(full);
@@ -82,6 +83,7 @@ export function createServer(overrides = {}) {
   const vnc = createVnc(cfg, events);
   const visuals = createVisuals(cfg, projects, events);
   const builds = createBuilds(cfg, db, projects, events);
+  const automation = createAutomation(cfg);
   const github = createGithub(events);
   const system = createSystem(cfg, events);
   // Relay link (companion linked to a Musa Control account): requests come in
@@ -129,7 +131,7 @@ export function createServer(overrides = {}) {
       terminal: Boolean(tmuxBin), terminalOverSocket: Boolean(tmuxBin && py && terminal.available()), agents: Boolean(tmuxBin),
       git: Boolean(git), github: Boolean(gh), remoteDesktop: fs.existsSync(cfg.noVncDir) && Object.keys(cfg.vnc?.known || {}).length > 0,
       previews: Boolean(ss || lsof), services: cfg.services.length > 0, push: push.enabled || Boolean(relay),
-      relay: relay ? relayState.state : "off", visualiser: true, agentPause: true,
+      relay: relay ? relayState.state : "off", visualiser: true, agentPause: true, automation: automation.enabled,
     };
   }
 
@@ -187,6 +189,21 @@ export function createServer(overrides = {}) {
   });
   route("GET", "/api/system", () => system.snapshot());
   route("GET", "/api/tmux", async () => ({ sessions: await tmux.listSessions(), panes: await tmux.listPanes() }));
+
+  // ---------- studio automation ----------
+  route("GET", "/api/automation/catalog", () => automation.catalog());
+  route("GET", "/api/automation/health", () => automation.health());
+  route("GET", "/api/automation/jobs", ({ q }) => automation.jobs(q.get("project")));
+  route("POST", "/api/automation/jobs", async ({ req, res }) =>
+    json(res, 202, await automation.submit(await readJson(req, 32768))), { raw: true });
+  route("GET", "/api/automation/jobs/:id", ({ params }) => automation.get(params.id));
+  route("POST", "/api/automation/jobs/:id/actions/:action", ({ params }) =>
+    automation.action(params.id, params.action), { bodyLimit: 1024 });
+  route("GET", "/api/automation/jobs/:id/artifacts/:name", async ({ req, res, params }) => {
+    const artifact = await automation.artifact(params.id, params.name);
+    await sendFile(req, res, artifact.path, { mime: "application/octet-stream", cache: "no-store",
+      extra: { "Content-Disposition": `attachment; filename="${artifact.name}"` } });
+  });
 
   // ---------- projects + files ----------
   route("GET", "/api/projects", () => {

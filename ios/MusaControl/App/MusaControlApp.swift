@@ -72,7 +72,7 @@ struct MusaControlApp: App {
     }
 }
 
-/// Physical keyboard map. App shortcuts use ⌘1–4, ⇧⌘ and ⌃⌘ so terminal and
+/// Physical keyboard map. App shortcuts use ⌘1–5, ⇧⌘ and ⌃⌘ so terminal and
 /// remote-desktop keys (⌃C, ⌃D, Esc, Tab, arrows) always pass through.
 struct WorkspaceCommands: Commands {
     let app: AppModel

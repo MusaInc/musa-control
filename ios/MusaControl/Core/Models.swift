@@ -375,6 +375,7 @@ struct Capabilities: Codable, Hashable {
     let profile: String?; let platform: String?; let os: String?; let arch: String?; let node: String?
     let terminal: Bool?; let terminalOverSocket: Bool?; let agents: Bool?; let git: Bool?; let github: Bool?
     let remoteDesktop: Bool?; let previews: Bool?; let services: Bool?; let push: Bool?; let relay: String?
+    let automation: Bool?
 }
 struct DeviceRow: Codable, Identifiable, Hashable { let id: String; let name: String; let created_at: Double; let last_seen: Double?; let expires_at: Double; let revoked: Int }
 struct WebSession: Codable { struct Cookie: Codable { let name: String; let value: String; let path: String; let maxAge: Double; let secure: Bool? }; let cookie: Cookie; let base: String? }

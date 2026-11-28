@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// iPhone: four clean tabs — Agents, Terminal, Files, Settings. The bar hides
+/// The iPhone tab bar hides
 /// while the keyboard is up so the agent composer keeps its room.
 struct PhoneShell: View {
     @Environment(AppModel.self) private var app
@@ -28,7 +28,7 @@ struct PhoneTabBar: View {
         let waiting = app.agents.filter { $0.status == "approval" }.count
         HStack(spacing: 0) {
             ForEach(AppSection.allCases) { s in
-                item(s, badge: s == .agents ? waiting : 0)
+                item(s, badge: s == .agents ? waiting : s == .automation ? app.automationRunning : 0)
             }
         }
         .padding(.top, 6).padding(.bottom, 2)
@@ -59,7 +59,7 @@ struct PhoneTabBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(badge > 0 ? "\(section.title), \(badge) waiting" : section.title))
+        .accessibilityLabel(Text(badge > 0 ? "\(section.title), \(badge) \(section == .automation ? "running" : "waiting")" : section.title))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("tab.\(section.rawValue)")
     }

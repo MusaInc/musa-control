@@ -41,7 +41,7 @@ esac`);
   fs.writeFileSync(path.join(gem, "settings.json"), JSON.stringify({ security: { auth: { selectedType: "oauth-personal" } } }));
   fs.writeFileSync(path.join(gem, "projects.json"), JSON.stringify({ projects: { [proj]: "web-app" } }));
   app = createServer({ profile: "companion", port: 0, dataDir: path.join(tmp, "data"), roots: [{ path: path.join(tmp, "code"), depth: 1, requireGit: true }],
-    claudeProjectsDir: path.join(tmp, "claude"), codexSessionsDir: path.join(tmp, "codex"), geminiDir: gem, claudeBinary: claude, codexBinary: codex, geminiBinary: path.join(bin, "gemini-missing"),
+    claudeProjectsDir: path.join(tmp, "claude"), codexSessionsDir: path.join(tmp, "codex"), geminiDir: gem, claudeBinary: claude, codexBinary: codex, geminiBinary: path.join(bin, "gemini-missing"), antigravityBinary: path.join(bin, "antigravity-missing"),
     apnsConfigFile: path.join(tmp, "no-apns.json") });
   await app.start();
   base = `http://127.0.0.1:${app.server.address().port}`;

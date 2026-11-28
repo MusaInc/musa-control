@@ -11,6 +11,7 @@ import { createServer } from "../src/server.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mc-test-"));
 const root = path.join(tmp, "projects"), proj = path.join(root, "Demo");
+const studioProject = path.join(root, "MotionSports");
 const claudeDir = path.join(tmp, "claude"), codexDir = path.join(tmp, "codex");
 let app, base, token;
 const pushes = [];
@@ -32,6 +33,11 @@ before(async () => {
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: proj });
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], { cwd: proj });
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: proj });
+  fs.mkdirSync(studioProject);
+  fs.writeFileSync(path.join(studioProject, "project.godot"), "; test project\n");
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: studioProject });
+  execFileSync("git", ["add", "project.godot"], { cwd: studioProject });
+  execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: studioProject });
   fs.mkdirSync(claudeDir); fs.mkdirSync(codexDir);
   const failing = path.join(tmp, "failing-claude"); fs.writeFileSync(failing, `#!/bin/bash
 printf 'ARG:%s\n' "$@"
@@ -40,7 +46,7 @@ exit 3
 `); fs.chmodSync(failing, 0o755);
   const hashFile = path.join(tmp, "hash"); fs.writeFileSync(hashFile, bcrypt.hashSync("correct horse", 4));
   app = createServer({ port: PORT, dataDir: path.join(tmp, "data"), passwordHashFile: hashFile, roots: [{ path: root, depth: 1, requireGit: false }], extra: [], exclude: [],
-    claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"], authorizedKeysFile: path.join(tmp, "authorized_keys"),
+    automation: { enabled: true, projectRoot: root }, claudeProjectsDir: claudeDir, codexSessionsDir: codexDir, services: ["ssh"], authorizedKeysFile: path.join(tmp, "authorized_keys"),
     claudeBinary: failing, codexBinary: failing, antigravityBinary: failing, geminiDir: path.join(tmp, "gemini"), apnsConfigFile: path.join(tmp, "no-apns.json"), apnsTransport: async (m) => { pushes.push({ ...m, payload: JSON.parse(m.body) }); return { status: 200 }; } });
   await app.start();
   base = `http://127.0.0.1:${PORT}`;
@@ -67,6 +73,30 @@ test("pairs with the workspace password and the token works (also under /control
   assert.match(token, /^mc_/);
   assert.equal((await api("GET", "/api/me")).body.name, "Test iPad");
   assert.equal((await api("GET", "/control/api/me")).status, 200);
+});
+
+test("automation requires authentication and only queues registered tools with validated inputs", async () => {
+  const endpoint = "/api/automation";
+  assert.equal((await api("GET", endpoint + "/catalog", null, { tok: null })).status, 401);
+  const catalog = (await api("GET", endpoint + "/catalog")).body;
+  assert.deepEqual(catalog.projects, [{ id: "motionsports", name: "Motion Sports" }]);
+  assert.ok(catalog.tools.find((tool) => tool.id === "godot.regression" && tool.outputSchema));
+  const request = { tool: "project.inventory", project: "motionsports" };
+  assert.equal((await api("POST", endpoint + "/jobs", { ...request, command: "anything" })).status, 400);
+  assert.equal((await api("POST", endpoint + "/jobs", { ...request, tool: "python" })).status, 404);
+  assert.equal((await api("POST", endpoint + "/jobs", { ...request, tool: "blender.inspect", inputs: { directory: "../assets" } })).status, 400);
+  const submission = await api("POST", endpoint + "/jobs", request);
+  assert.equal(submission.status, 202);
+  assert.equal(submission.body.state, "queued");
+  assert.match(submission.body.commit, /^[a-f0-9]{40}$/);
+  assert.equal((await api("GET", endpoint + "/health")).body.online, false);
+  const job = endpoint + "/jobs/" + submission.body.id;
+  assert.equal((await api("POST", job + "/actions/pause")).body.state, "paused");
+  assert.equal((await api("POST", job + "/actions/resume")).body.state, "queued");
+  assert.equal((await api("POST", job + "/actions/cancel")).body.state, "cancelled");
+  assert.equal((await api("POST", job + "/actions/retry")).body.retryOf, submission.body.id);
+  assert.equal((await api("GET", job + "/artifacts/unknown")).status, 404);
+  assert.equal((await api("GET", endpoint + "/jobs/--data")).status, 404);
 });
 
 test("lists discovered projects and refuses path escapes and secrets", async () => {

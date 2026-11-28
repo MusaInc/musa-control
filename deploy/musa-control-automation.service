@@ -1,0 +1,27 @@
+# Install with the same __USER__ and __HOME__ substitutions as musa-control.service.
+[Unit]
+Description=Musa Control deterministic studio automation worker
+After=local-fs.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__HOME__/musa-control
+Environment=HOME=__HOME__
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -B server/automation/studio.py worker
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+CPUQuota=200%
+CPUWeight=30
+MemoryHigh=4G
+MemoryMax=5G
+TasksMax=384
+IOWeight=30
+
+[Install]
+WantedBy=multi-user.target
